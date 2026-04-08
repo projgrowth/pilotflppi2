@@ -66,4 +66,6 @@ export const ScanTimeline = forwardRef<HTMLDivElement, ScanTimelineProps>(functi
       })}
     </div>
   );
-}
+});
+
+ScanTimeline.displayName = "ScanTimeline";
