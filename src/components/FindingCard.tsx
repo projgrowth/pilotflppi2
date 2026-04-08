@@ -1,7 +1,6 @@
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { getDisciplineIcon, getDisciplineColor, getDisciplineLabel } from "@/lib/county-utils";
-import { AlertTriangle, AlertCircle, Info, CheckCircle2, HelpCircle, CheckCheck, MapPin, Clock, ArrowRightLeft } from "lucide-react";
+import { AlertTriangle, AlertCircle, Info, CheckCheck, MapPin, Clock, ArrowRightLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, forwardRef } from "react";
 import type { FindingStatus } from "@/components/FindingStatusFilter";
@@ -28,20 +27,20 @@ export interface Finding {
   resolved?: boolean;
 }
 
-const severityConfig: Record<string, { icon: typeof AlertTriangle; bar: string; badge: string }> = {
+const severityConfig: Record<string, { icon: typeof AlertTriangle; dot: string; badge: string }> = {
   critical: {
     icon: AlertTriangle,
-    bar: "bg-destructive",
+    dot: "bg-destructive",
     badge: "bg-destructive/10 text-destructive border-destructive/20",
   },
   major: {
     icon: AlertCircle,
-    bar: "bg-[hsl(var(--warning))]",
+    dot: "bg-[hsl(var(--warning))]",
     badge: "bg-[hsl(var(--warning))]/10 text-[hsl(var(--warning))] border-[hsl(var(--warning))]/20",
   },
   minor: {
     icon: Info,
-    bar: "bg-muted-foreground/40",
+    dot: "bg-muted-foreground/40",
     badge: "bg-muted text-muted-foreground border-border",
   },
 };
@@ -61,13 +60,13 @@ interface FindingCardProps {
   animationDelay?: number;
   status?: FindingStatus;
   onStatusChange?: (status: FindingStatus) => void;
+  defaultExpanded?: boolean;
 }
 
 export const FindingCard = forwardRef<HTMLDivElement, FindingCardProps>(
-  ({ finding, index, globalIndex, isActive, onLocateClick, animationDelay = 0, status = "open", onStatusChange }, ref) => {
-    const [expanded, setExpanded] = useState(false);
+  ({ finding, index, globalIndex, isActive, onLocateClick, animationDelay = 0, status = "open", onStatusChange, defaultExpanded = false }, ref) => {
+    const [expanded, setExpanded] = useState(defaultExpanded);
     const sev = severityConfig[finding.severity] || severityConfig.minor;
-    const SevIcon = sev.icon;
     const isResolved = status === "resolved";
     const isDeferred = status === "deferred";
     const displayIndex = globalIndex !== undefined ? globalIndex : index;
@@ -82,11 +81,14 @@ export const FindingCard = forwardRef<HTMLDivElement, FindingCardProps>(
     const currentStatusOption = statusOptions.find((s) => s.value === status)!;
     const StatusIcon = currentStatusOption.icon;
 
+    // Auto-expand when active
+    const isExpanded = expanded || isActive;
+
     return (
       <div
         ref={ref}
         className={cn(
-          "relative rounded-lg border overflow-hidden cursor-pointer transition-all duration-200 hover:bg-muted/20",
+          "relative rounded-md border overflow-hidden cursor-pointer transition-all duration-150",
           "animate-in fade-in slide-in-from-bottom-1",
           isActive && "ring-2 ring-accent bg-accent/5",
           isResolved && "opacity-50",
@@ -95,79 +97,102 @@ export const FindingCard = forwardRef<HTMLDivElement, FindingCardProps>(
         style={{ animationDelay: `${animationDelay}ms`, animationFillMode: "backwards" }}
         onClick={() => setExpanded(!expanded)}
       >
-        {/* Severity bar */}
-        <div className={cn("absolute left-0 top-0 bottom-0 w-0.5", sev.bar, isResolved && "opacity-30")} />
+        {/* Collapsed: single-line summary */}
+        <div className={cn("px-2.5 py-1.5", isExpanded && "border-b border-border/30")}>
+          <div className="flex items-center gap-1.5">
+            {/* Severity dot */}
+            <div className={cn("h-1.5 w-1.5 rounded-full shrink-0", sev.dot, isResolved && "opacity-30")} />
 
-        <div className="px-3 py-2 pl-3.5">
-          <div className="flex items-start gap-2">
             {/* Number */}
-            <span className={cn(
-              "text-[10px] font-mono font-bold mt-0.5 shrink-0 w-4 text-right",
-              isActive ? "text-accent" : "text-muted-foreground/50"
-            )}>
+            <span className="text-[9px] font-mono text-muted-foreground/50 w-3 text-right shrink-0">
               {displayIndex + 1}
             </span>
 
-            {/* Content */}
-            <div className={cn("flex-1 min-w-0 space-y-1", isResolved && "line-through decoration-muted-foreground/30")}>
-              {/* Meta row */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <Badge className={cn("text-[9px] uppercase font-semibold border h-4 px-1", sev.badge)}>
-                  {finding.severity}
+            {/* Code ref */}
+            <code className="text-[10px] font-mono text-foreground/70 shrink-0">
+              {finding.code_ref}
+            </code>
+
+            {/* Description truncated */}
+            <span className={cn(
+              "text-[11px] text-foreground/75 truncate flex-1 min-w-0",
+              isResolved && "line-through decoration-muted-foreground/30"
+            )}>
+              {finding.description}
+            </span>
+
+            {/* Status badge (non-open only) */}
+            {status !== "open" && (
+              <span className={cn("text-[8px] font-semibold shrink-0", currentStatusOption.className)}>
+                {currentStatusOption.label}
+              </span>
+            )}
+
+            {/* Expand chevron */}
+            <ChevronRight className={cn(
+              "h-3 w-3 text-muted-foreground/30 shrink-0 transition-transform duration-150",
+              isExpanded && "rotate-90"
+            )} />
+          </div>
+        </div>
+
+        {/* Expanded details */}
+        {isExpanded && (
+          <div className="px-3 py-2 space-y-1.5">
+            {/* Meta chips */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Badge className={cn("text-[9px] uppercase font-semibold border h-4 px-1", sev.badge)}>
+                {finding.severity}
+              </Badge>
+              {finding.page && (
+                <span className="text-[9px] text-muted-foreground">pg {finding.page}</span>
+              )}
+              {finding.county_specific && (
+                <Badge variant="outline" className="text-[8px] font-medium border-accent text-accent bg-accent/5 h-3.5 px-1">
+                  County
                 </Badge>
-                <code className="text-[10px] font-mono text-foreground/70 bg-muted/50 px-1 rounded">
-                  {finding.code_ref}
-                </code>
-                {finding.page && (
-                  <span className="text-[9px] text-muted-foreground">
-                    pg {finding.page}
-                  </span>
-                )}
-                {finding.county_specific && (
-                  <Badge variant="outline" className="text-[8px] font-medium border-accent text-accent bg-accent/5 h-3.5 px-1">
-                    County
-                  </Badge>
-                )}
-                {status !== "open" && (
-                  <span className={cn("text-[9px] font-medium", currentStatusOption.className)}>
-                    {currentStatusOption.label}
-                  </span>
-                )}
-              </div>
-
-              {/* Description */}
-              <p className="text-[12px] leading-relaxed text-foreground/85">{finding.description}</p>
-
-              {/* Recommendation (expanded) */}
-              {expanded && finding.recommendation && (
-                <div className="mt-1.5 rounded bg-muted/40 border border-border/40 px-2.5 py-2">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-0.5">Recommendation</p>
-                  <p className="text-[11px] text-foreground/75 leading-relaxed">{finding.recommendation}</p>
-                </div>
               )}
             </div>
 
-            {/* Actions column */}
-            <div className="flex items-center gap-0.5 shrink-0 mt-0.5">
+            {/* Full description */}
+            <p className={cn(
+              "text-[12px] leading-relaxed text-foreground/85",
+              isResolved && "line-through decoration-muted-foreground/30"
+            )}>
+              {finding.description}
+            </p>
+
+            {/* Recommendation */}
+            {finding.recommendation && (
+              <div className="rounded bg-muted/40 border border-border/40 px-2.5 py-2">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-0.5">Recommendation</p>
+                <p className="text-[11px] text-foreground/75 leading-relaxed">{finding.recommendation}</p>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-1 pt-0.5">
               {finding.markup && onLocateClick && (
                 <button
-                  className="p-1 rounded text-muted-foreground/40 hover:text-accent hover:bg-accent/10 transition-colors"
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:text-accent hover:bg-accent/10 transition-colors"
                   onClick={(e) => { e.stopPropagation(); onLocateClick(); }}
-                  title="Locate on plan"
                 >
-                  <MapPin className="h-3 w-3" />
+                  <MapPin className="h-3 w-3" /> Locate
                 </button>
               )}
               <button
-                className={cn("p-1 rounded transition-colors", currentStatusOption.className, "opacity-50 hover:opacity-100 hover:bg-muted/50")}
+                className={cn(
+                  "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors",
+                  currentStatusOption.className, "opacity-60 hover:opacity-100 hover:bg-muted/50"
+                )}
                 onClick={(e) => { e.stopPropagation(); cycleStatus(); }}
                 title={`${currentStatusOption.label} — Click to change`}
               >
-                <StatusIcon className="h-3 w-3" />
+                <StatusIcon className="h-3 w-3" /> {currentStatusOption.label}
               </button>
             </div>
           </div>
-        </div>
+        )}
       </div>
     );
   }

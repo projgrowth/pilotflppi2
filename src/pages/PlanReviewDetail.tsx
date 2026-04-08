@@ -17,7 +17,9 @@ import {
   Sparkles, Send, Loader2, Copy, Check,
   Wind, Upload, ArrowLeft, Mail, Phone,
   FileDown, Printer, Plus, PanelRightClose, PanelRight,
+  ChevronDown,
 } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { FindingCard, type Finding } from "@/components/FindingCard";
@@ -32,6 +34,7 @@ import {
   isHVHZ, getCountyLabel, getDisciplineIcon, getDisciplineColor,
   getDisciplineLabel, DISCIPLINE_ORDER, SCANNING_STEPS,
 } from "@/lib/county-utils";
+import { ContractorHoverCard } from "@/components/ContractorHoverCard";
 
 interface ContractorInfo {
   id: string;
@@ -158,6 +161,8 @@ export default function PlanReviewDetail() {
   const [statusFilter, setStatusFilter] = useState<FindingStatus | "all">("all");
   const [showDiff, setShowDiff] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [aiCompleteFlash, setAiCompleteFlash] = useState<number | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
 
   useEffect(() => {
     if (review?.finding_statuses) {
@@ -224,7 +229,8 @@ export default function PlanReviewDetail() {
       await supabase.from("plan_reviews").update({ file_urls: newUrls }).eq("id", review.id);
       queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
       hasAutoRendered.current = false; // allow re-render
-      toast.success("Documents uploaded");
+      setUploadSuccess(true);
+      setTimeout(() => setUploadSuccess(false), 2500);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -344,7 +350,8 @@ export default function PlanReviewDetail() {
 
       queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
       setFindingStatuses({});
-      toast.success(`AI check complete — ${findings.length} findings`);
+      setAiCompleteFlash(findings.length);
+      setTimeout(() => setAiCompleteFlash(null), 3500);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "AI check failed");
       await supabase.from("plan_reviews").update({ ai_check_status: "error" }).eq("id", r.id);
@@ -526,60 +533,57 @@ export default function PlanReviewDetail() {
             <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
               <span className="truncate">{review.project?.address}</span>
               <span>{getCountyLabel(county)} County</span>
-              {contractor && (
-                <>
-                  <span className="text-foreground font-medium">{contractor.name}</span>
-                  {contractor.email && (
-                    <a href={`mailto:${contractor.email}`} className="flex items-center gap-0.5 hover:text-accent transition-colors">
-                      <Mail className="h-2.5 w-2.5" /> {contractor.email}
-                    </a>
-                  )}
-                  {contractor.phone && (
-                    <a href={`tel:${contractor.phone}`} className="flex items-center gap-0.5 hover:text-accent transition-colors">
-                      <Phone className="h-2.5 w-2.5" /> {contractor.phone}
-                    </a>
-                  )}
-                </>
-              )}
+              {contractor && <ContractorHoverCard contractor={contractor} />}
             </div>
           </div>
 
-          {/* Round pills */}
-          <div className="flex items-center gap-1 shrink-0">
-            {projectRounds.map((round) => (
-              <button
-                key={round.id}
-                onClick={() => navigate(`/plan-review/${round.id}`)}
-                className={cn(
-                  "px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all",
-                  round.id === review.id
-                    ? "bg-accent text-accent-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
-                )}
-              >
-                R{round.round}
+          {/* Round dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-accent text-accent-foreground shrink-0">
+                R{review.round}
+                <ChevronDown className="h-3 w-3" />
               </button>
-            ))}
-            <button
-              onClick={createNewRound}
-              className="px-1.5 py-0.5 rounded-full text-[10px] text-muted-foreground hover:bg-muted transition-colors"
-              title="New round"
-            >
-              <Plus className="h-3 w-3" />
-            </button>
-          </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[120px]">
+              {projectRounds.map((round) => (
+                <DropdownMenuItem
+                  key={round.id}
+                  onClick={() => navigate(`/plan-review/${round.id}`)}
+                  className={cn("text-xs", round.id === review.id && "bg-accent/10 font-medium")}
+                >
+                  R{round.round}
+                  {round.findingsCount > 0 && (
+                    <span className="ml-auto text-[9px] text-muted-foreground">{round.findingsCount} findings</span>
+                  )}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuItem onClick={createNewRound} className="text-xs text-accent">
+                <Plus className="h-3 w-3 mr-1" /> New Round
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* Deadline ring */}
           <DeadlineRing daysElapsed={21 - daysLeft} totalDays={21} size={30} />
 
-          {/* Primary action */}
+          {/* Primary action — with inline feedback */}
           <Button
             size="sm"
             onClick={() => runAICheck(review)}
             disabled={aiRunning}
-            className="bg-accent text-accent-foreground hover:bg-accent/90 h-8 text-xs shrink-0"
+            className={cn(
+              "h-8 text-xs shrink-0 transition-all",
+              aiCompleteFlash !== null
+                ? "bg-[hsl(var(--success))] text-[hsl(var(--success-foreground))]"
+                : !hasFindings && !aiRunning
+                ? "bg-accent text-accent-foreground hover:bg-accent/90 animate-pulse"
+                : "bg-accent text-accent-foreground hover:bg-accent/90"
+            )}
           >
-            {aiRunning ? (
+            {aiCompleteFlash !== null ? (
+              <><Check className="h-3.5 w-3.5 mr-1.5" /> ✓ {aiCompleteFlash} findings</>
+            ) : aiRunning ? (
               <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Analyzing...</>
             ) : (
               <><Sparkles className="h-3.5 w-3.5 mr-1.5" /> {hasFindings ? "Re-Analyze" : "Run AI Check"}</>
@@ -629,6 +633,11 @@ export default function PlanReviewDetail() {
                   />
                 )}
                 <div className="shrink-0 border-t bg-muted/20 px-3 py-1.5 flex items-center gap-2 overflow-x-auto">
+                  {uploadSuccess && (
+                    <span className="flex items-center gap-1 text-[10px] text-[hsl(var(--success))] font-medium animate-in fade-in">
+                      <Check className="h-3 w-3" /> Uploaded
+                    </span>
+                  )}
                   {fileUrls.map((url, i) => {
                     const name = decodeURIComponent(url.split("/").pop() || `Doc ${i + 1}`);
                     return (
@@ -712,11 +721,28 @@ export default function PlanReviewDetail() {
                 {rightPanel === "findings" && (
                   <div className="p-3 space-y-2">
                     {!hasFindings && !aiRunning && (
-                      <div className="text-center py-16">
-                        <p className="text-sm text-muted-foreground">No findings yet</p>
-                        <p className="text-xs text-muted-foreground/60 mt-1">
-                          {hasDocuments ? "Click \"Run AI Check\" to analyze your plans" : "Upload documents first"}
-                        </p>
+                      <div className="flex flex-col items-center justify-center py-12 px-4">
+                        {hasDocuments ? (
+                          <div className="text-center space-y-3 max-w-[220px]">
+                            <div className="mx-auto w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
+                              <Sparkles className="h-5 w-5 text-accent" />
+                            </div>
+                            <p className="text-sm font-medium">Ready to analyze</p>
+                            <p className="text-xs text-muted-foreground">{fileUrls.length} document{fileUrls.length > 1 ? "s" : ""} loaded</p>
+                            <Button
+                              size="sm"
+                              onClick={() => runAICheck(review)}
+                              className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+                            >
+                              <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Analyze Plans
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="text-center space-y-2">
+                            <Upload className="h-8 w-8 text-muted-foreground/20 mx-auto" />
+                            <p className="text-sm text-muted-foreground">Upload documents to begin</p>
+                          </div>
+                        )}
                       </div>
                     )}
                     {hasFindings && (

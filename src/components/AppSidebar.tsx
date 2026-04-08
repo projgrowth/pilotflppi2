@@ -1,4 +1,4 @@
-import { useLocation, Link, useNavigate } from "react-router-dom";
+import { useLocation, Link, useNavigate, useParams, matchPath } from "react-router-dom";
 import {
   LayoutDashboard,
   FolderKanban,
@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Menu,
   LogOut,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -115,6 +116,18 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <NavSection title="Operations" items={operationsNav} onNavigate={onNavigate} />
         <NavSection title="Intelligence" items={intelligenceNav} onNavigate={onNavigate} />
         <NavSection title="Manage" items={manageNav} onNavigate={onNavigate} />
+      </div>
+
+      {/* ⌘K hint */}
+      <div className="px-6 pb-2">
+        <button
+          onClick={() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
+          className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-[10px] text-sidebar-foreground/40 hover:text-sidebar-foreground/60 hover:bg-sidebar-accent/30 transition-colors"
+        >
+          <Search className="h-3 w-3" />
+          <span>Search</span>
+          <kbd className="ml-auto text-[9px] bg-sidebar-accent/20 px-1 rounded">⌘K</kbd>
+        </button>
       </div>
 
       {/* User chip */}
