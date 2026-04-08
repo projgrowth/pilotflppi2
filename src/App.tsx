@@ -19,6 +19,7 @@ import LeadRadar from "./pages/LeadRadar";
 import Contractors from "./pages/Contractors";
 import Documents from "./pages/Documents";
 import SettingsPage from "./pages/Settings";
+import ProjectDetail from "./pages/ProjectDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -38,6 +39,7 @@ const App = () => (
             <Route element={<AppLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/projects" element={<Projects />} />
+              <Route path="/projects/:id" element={<ProjectDetail />} />
               <Route path="/plan-review" element={<PlanReview />} />
               <Route path="/inspections" element={<Inspections />} />
               <Route path="/deadlines" element={<Deadlines />} />
