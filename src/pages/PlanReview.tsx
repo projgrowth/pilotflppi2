@@ -14,7 +14,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileSearch, Sparkles, Send, Loader2, ChevronRight, Copy, Check,
-  Wind, Upload, FileText, Printer, X, Plus, Eye, ClipboardCheck
+  Wind, Upload, FileText, X, Plus, Eye, ClipboardCheck
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -360,8 +360,8 @@ export default function PlanReview() {
           project_id: selectedReview.project_id,
           round: maxRound + 1,
           file_urls: selectedReview.file_urls,
-          previous_findings: selectedReview.ai_findings || [],
-        })
+          previous_findings: JSON.parse(JSON.stringify(selectedReview.ai_findings || [])),
+        } as any)
         .select("*, project:projects(id, name, address, trade_type, county, jurisdiction)")
         .single();
 
