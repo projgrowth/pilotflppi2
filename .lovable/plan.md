@@ -1,85 +1,102 @@
 
 
-# Elevate Plan Review: Precision, Polish & Reliability
+## Plan: Rebrand PermitPilot to Florida Private Providers + Portal Improvements
 
-## Current State
-The Plan Review workspace has a solid foundation — tabbed detail panel, AI findings grouped by discipline, comment letter streaming, file upload, and HVHZ detection. But several areas lack polish, precision, and reliability.
+### Analysis of floridaprivateproviders.com
 
-## Improvements
+The FPP website uses:
+- **Colors**: Deep forest green (#2D5A3D-ish), warm off-white/cream backgrounds, dark charcoal text, gold/amber accents
+- **Logo**: Text-based "Florida / PRIVATE PROVIDERS" with a horizontal rule between
+- **Typography**: Clean sans-serif body, serif for display headings
+- **Tone**: Professional, trustworthy, Florida-centric. Key stats: License #AR92053, 44+ years, 67 counties, 2,500+ projects, Google 5.0
+- **Structure**: "Three Simple Steps" flow, testimonials, FAQ, leadership team
 
-### 1. Upload-First Wizard with AI Auto-Extraction
+### What needs to change
 
-Restructure `NewPlanReviewWizard.tsx` from 3 steps to a smarter flow:
+**1. Branding overhaul (colors, logo, metadata)**
+- Update CSS custom properties: primary to deep green (#1B4332), accent to warm gold (#C9A84C stays), teal replaced with forest green
+- Sidebar: dark green instead of navy
+- Replace the hexagon SVG logo with text-based "Florida / PRIVATE PROVIDERS" matching their wordmark
+- Update `index.html` title and meta tags to "Florida Private Providers — PermitPilot"
+- Update sidebar brand text from "PermitPilot" subtitle to "Licensed Private Provider"
 
-```text
-[Upload Plans] → [Confirm AI-Extracted Details] → [Launch]
-```
+**2. Login page — real auth with branded experience**
+- Currently just redirects to dashboard (no auth gate)
+- Build a proper login/signup page with FPP branding: logo, green gradient background, email/password form, Google sign-in
+- Add route protection so unauthenticated users are redirected to /login
 
-- Step 1 becomes a drag-and-drop upload zone (no project form yet)
-- After upload, use `pdfjs-dist` in the browser to render page 1 (title block) to a base64 PNG
-- Send the image to a new `extract_project_info` action in the AI edge function (using `google/gemini-2.5-pro` for multimodal vision) that returns: project name, address, county, jurisdiction, trade type
-- Step 2 pre-fills all fields from the AI extraction — user just confirms or corrects
-- HVHZ auto-detected from the extracted county, shown inline
-- Existing project matching: if AI-extracted name/address matches a DB project, suggest linking instead of creating new
+**3. Dashboard refinements**
+- Add the FPP stats bar (License #AR92053, 44+ Yrs, 67 Counties) as a subtle footer or header element
+- Refine greeting area with company branding context
 
-### 2. Visual Plan Analysis with Real Document Reading
+**4. Missing functional pages**
+- **AI Briefing, Milestone Radar, Lead Radar, Documents**: Audit these pages — ensure they query real data and have no placeholder content
+- **Contractors page**: Verify it works with the database
 
-Currently the AI only sees filenames. Upgrade `runAICheck` to send actual page images:
+**5. Overall polish**
+- Green color scheme throughout all components (buttons, chips, rings, donut charts)
+- Card borders and hover states using the new green palette
+- Consistent use of the FPP green for active sidebar items instead of gold
 
-- Use `pdfjs-dist` to render each uploaded PDF page to a ~150 DPI PNG (cap at 10 pages)
-- Add a new `plan_review_check_visual` action to the edge function that accepts base64 images as multimodal content parts alongside the system prompt
-- Use `google/gemini-2.5-pro` (best for vision + reasoning)
-- AI now analyzes actual structural drawings, site plans, and schedules for real code violations
-- Extend finding schema with optional `markup` coordinates: `{ page_index, x, y, width, height }` (percentages)
-
-### 3. Visual Markup Overlay on Plans
-
-New `PlanMarkupViewer.tsx` component:
-
-- Renders PDF pages via `pdfjs-dist` canvas with a transparent overlay layer
-- Red semi-transparent rectangles at AI-reported coordinates with numbered callout badges
-- Click a callout → scrolls to and highlights the corresponding FindingCard
-- Click a FindingCard → scrolls the viewer to the correct page and pulses the annotation
-- Split-view layout in the Findings tab: PDF viewer left (60%), finding cards right (40%)
-
-### 4. UI Polish & Micro-interactions
-
-- **Review queue cards**: Add the `DeadlineRing` component showing the 21-day statutory countdown from `created_at`
-- **Severity donut chart**: Small SVG donut in the overview tab showing critical/major/minor proportions
-- **Smooth scan animation**: Replace the grid with a vertical timeline that fills as each discipline completes, with checkmark transitions
-- **Finding cards**: Add subtle entrance animations (stagger fade-in), hover lift shadow, and a "resolved" toggle that strikes through the finding
-- **Comment letter**: Render as a styled document preview (letterhead, formatted sections) instead of a raw textarea, with an edit mode toggle
-- **Empty states**: Illustrated empty states with contextual CTAs instead of plain text
-- **Skeleton loading**: Use proper Skeleton components in the detail panel during data fetch
-
-### 5. Reliability & Error Handling
-
-- **Retry logic**: Wrap AI calls with exponential backoff (max 3 retries) for transient failures
-- **Optimistic UI**: Show immediate feedback when flagging findings or uploading files
-- **File validation**: Check PDF headers before uploading (not just MIME type), show file size and page count
-- **Progress tracking**: Real progress bar during multi-page PDF rendering (not just a cycling animation)
-- **Auto-save**: Persist comment letter edits to the database with debounced saves
-- **Toast improvements**: Use descriptive toasts with action buttons (e.g., "View Findings" after AI check completes)
-
-## Technical Details
-
-### New/Modified Files
+### Files to modify
 
 | File | Change |
-|---|---|
-| `src/components/NewPlanReviewWizard.tsx` | Restructure to upload-first flow with AI extraction step |
-| `src/lib/pdf-utils.ts` | New: PDF page → base64 image conversion via pdfjs-dist |
-| `supabase/functions/ai/index.ts` | Add `extract_project_info` and `plan_review_check_visual` actions with multimodal content |
-| `src/components/PlanMarkupViewer.tsx` | New: PDF canvas renderer with annotation overlays |
-| `src/components/FindingCard.tsx` | Add resolved toggle, entrance animation, markup link |
-| `src/pages/PlanReview.tsx` | Split-view findings tab, deadline rings on queue, severity donut, skeleton states, retry logic |
-| `src/components/SeverityDonut.tsx` | New: Small SVG donut chart for finding severity breakdown |
-| `src/components/ScanTimeline.tsx` | New: Vertical timeline scanning animation |
+|------|--------|
+| `src/index.css` | Update all CSS custom properties to FPP green palette |
+| `tailwind.config.ts` | No structural changes needed (uses CSS vars) |
+| `index.html` | Update title, meta tags to FPP branding |
+| `src/components/AppSidebar.tsx` | Replace logo SVG with FPP wordmark, update brand text |
+| `src/pages/Login.tsx` | Build full auth page with email/password, Google sign-in, FPP branding |
+| `src/contexts/AuthContext.tsx` | Already functional — no changes needed |
+| `src/App.tsx` | Add auth guard wrapper for protected routes |
+| `src/pages/Dashboard.tsx` | Add license/stats bar, refine branding references |
+| `src/pages/AIBriefing.tsx` | Audit for mock data |
+| `src/pages/LeadRadar.tsx` | Audit for mock data |
+| `src/pages/MilestoneRadar.tsx` | Audit for mock data |
+| `src/pages/Documents.tsx` | Audit for mock data |
+| `src/pages/Contractors.tsx` | Audit for mock data |
 
-### Dependencies
-- `pdfjs-dist` — browser-side PDF rendering to canvas
+### Color palette mapping
 
-### Models Used
-- `google/gemini-2.5-pro` — for multimodal vision tasks (title block extraction, visual plan analysis)
-- `google/gemini-3-flash-preview` — for text-only tasks (comment letter generation, code Q&A)
+```text
+Current (Navy/Gold)          →  FPP (Green/Gold)
+──────────────────────────────────────────────────
+--primary: navy #0B1F3A      →  forest green #1B4332
+--sidebar-bg: navy           →  dark green #14332A
+--accent: gold #C9A84C       →  gold #C9A84C (keep)
+--teal: #2A9D8F              →  sage green #2D6A4F
+--background: cream          →  warm cream (keep)
+--border: warm tan           →  slightly greener neutral
+```
+
+### Auth flow
+
+```text
+User visits any route
+  → AuthGuard checks session
+    → No session → redirect /login
+    → Has session → render AppLayout + children
+
+/login page:
+  ┌─────────────────────────────┐
+  │  Florida                    │
+  │  PRIVATE PROVIDERS          │
+  │  ───────────────────        │
+  │                             │
+  │  [Email input]              │
+  │  [Password input]          │
+  │  [Sign In button — green]   │
+  │  ── or ──                   │
+  │  [Continue with Google]     │
+  │                             │
+  │  Don't have an account?     │
+  │  Sign up                    │
+  └─────────────────────────────┘
+```
+
+### Estimated scope
+- 10-12 files modified
+- 1 new component (AuthGuard or inline in App.tsx)
+- No database migrations needed
+- Auth configuration: enable Google OAuth via cloud tools
 
