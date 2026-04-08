@@ -12,6 +12,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Projects from "./pages/Projects";
 import PlanReview from "./pages/PlanReview";
+import PlanReviewDetail from "./pages/PlanReviewDetail";
 import Inspections from "./pages/Inspections";
 import Deadlines from "./pages/Deadlines";
 import AIBriefing from "./pages/AIBriefing";
