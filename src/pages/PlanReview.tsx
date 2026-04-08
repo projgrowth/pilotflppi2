@@ -153,7 +153,7 @@ export default function PlanReview() {
     statusSaveTimer.current = setTimeout(async () => {
       await supabase
         .from("plan_reviews")
-        .update({ finding_statuses: statuses as unknown as Record<string, unknown> })
+        .update({ finding_statuses: JSON.parse(JSON.stringify(statuses)) })
         .eq("id", reviewId);
     }, 800);
   }, []);
