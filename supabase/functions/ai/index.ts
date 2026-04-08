@@ -44,6 +44,49 @@ Produce 8-12 findings spanning multiple disciplines. Ensure at least:
 
 Return ONLY a JSON array of findings with no additional text.`,
 
+  plan_review_check_visual: `You are an expert Florida Building Code (FBC 2023) plan reviewer for a licensed Private Provider firm operating under Florida Statute 553.791.
+
+You are receiving ACTUAL IMAGES of construction plan sheets. Analyze each sheet carefully for code compliance violations.
+
+Tailor your analysis to county-specific requirements:
+
+**HVHZ (High Velocity Hurricane Zone)**: Miami-Dade and Broward counties have enhanced requirements:
+- Miami-Dade County: Testing/approval per TAS 201, 202, 203 for impact-resistant products
+- ASCE 7 wind speeds ≥ 170 mph, missile impact criteria per FBC 1626
+- Product approvals must be Miami-Dade NOA (Notice of Acceptance)
+- Enhanced roofing requirements per FBC 1523 (HVHZ)
+
+**Non-HVHZ Counties**: Standard FBC wind load per ASCE 7, Florida Product Approvals (FL #) accepted.
+
+For each finding, provide ALL of the following fields:
+- severity: "critical" | "major" | "minor"
+- discipline: "structural" | "life_safety" | "fire" | "mechanical" | "electrical" | "plumbing" | "energy" | "ada" | "site"
+- code_ref: Specific FBC 2023 section
+- county_specific: true if HVHZ-specific
+- page: The sheet designation visible on the drawing (e.g., S-101, A-201)
+- description: Clear, specific description of the deficiency you SEE in the plans
+- recommendation: Actionable fix with code reference
+- confidence: "verified" | "likely" | "advisory"
+- markup: Object with { page_index: <0-based index of the image where the issue is>, x: <percentage from left 0-100>, y: <percentage from top 0-100>, width: <percentage width 5-30>, height: <percentage height 3-20> } indicating WHERE on the plan the issue is located. Be as precise as possible.
+
+Produce 8-15 findings based on what you actually see in the plans. Focus on REAL issues visible in the drawings.
+
+Return ONLY a JSON array of findings with no additional text.`,
+
+  extract_project_info: `You are analyzing a construction plan title block. Extract the following information from the image:
+
+- project_name: The name of the project
+- address: The full street address
+- county: The Florida county (return as lowercase with hyphens, e.g., "miami-dade", "palm-beach", "broward")
+- jurisdiction: The city or jurisdiction (e.g., "City of Miami", "City of Fort Lauderdale")
+- trade_type: The primary trade type. Must be one of: "building", "structural", "mechanical", "electrical", "plumbing", "roofing", "fire"
+- architect: The architect or engineer of record name if visible
+- permit_number: The permit application number if visible
+
+If a field is not clearly visible, set it to null.
+
+Return ONLY a JSON object with these fields, no additional text.`,
+
   generate_comment_letter: `You are a professional plan review engineer at Florida Private Providers (FPP), a licensed Private Provider firm (License #PVP-XXXXX) operating under Florida Statute 553.791.
 
 Generate a formal deficiency/comment letter with this structure:
@@ -118,7 +161,7 @@ Always:
 - Provide practical guidance for compliance`,
 };
 
-// Tool schema for structured plan review output
+// Tool schemas for structured output
 const PLAN_REVIEW_TOOL = {
   type: "function" as const,
   function: {
@@ -140,6 +183,17 @@ const PLAN_REVIEW_TOOL = {
               description: { type: "string" },
               recommendation: { type: "string" },
               confidence: { type: "string", enum: ["verified", "likely", "advisory"] },
+              markup: {
+                type: "object",
+                properties: {
+                  page_index: { type: "number" },
+                  x: { type: "number" },
+                  y: { type: "number" },
+                  width: { type: "number" },
+                  height: { type: "number" },
+                },
+                required: ["page_index", "x", "y", "width", "height"],
+              },
             },
             required: ["severity", "discipline", "code_ref", "county_specific", "page", "description", "recommendation", "confidence"],
             additionalProperties: false,
@@ -150,6 +204,38 @@ const PLAN_REVIEW_TOOL = {
       additionalProperties: false,
     },
   },
+};
+
+const EXTRACT_PROJECT_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "extract_project_info",
+    description: "Extract project information from a title block image",
+    parameters: {
+      type: "object",
+      properties: {
+        project_name: { type: "string", description: "Project name" },
+        address: { type: "string", description: "Full address" },
+        county: { type: "string", description: "Florida county in lowercase with hyphens" },
+        jurisdiction: { type: "string", description: "City or jurisdiction" },
+        trade_type: { type: "string", enum: ["building", "structural", "mechanical", "electrical", "plumbing", "roofing", "fire"] },
+        architect: { type: "string", description: "Architect or engineer name" },
+        permit_number: { type: "string", description: "Permit number if visible" },
+      },
+      required: ["project_name", "address", "county", "trade_type"],
+      additionalProperties: false,
+    },
+  },
+};
+
+// Actions that use multimodal (vision) capabilities
+const MULTIMODAL_ACTIONS = new Set(["plan_review_check_visual", "extract_project_info"]);
+
+// Actions that use tool calling for structured output
+const TOOL_CALL_ACTIONS: Record<string, typeof PLAN_REVIEW_TOOL> = {
+  plan_review_check: PLAN_REVIEW_TOOL,
+  plan_review_check_visual: PLAN_REVIEW_TOOL,
+  extract_project_info: EXTRACT_PROJECT_TOOL,
 };
 
 serve(async (req) => {
@@ -176,24 +262,56 @@ serve(async (req) => {
     }
 
     const systemPrompt = SYSTEM_PROMPTS[action];
-    const userMessage = typeof payload === "string" ? payload : JSON.stringify(payload);
     const stream = payload?.stream === true;
+    const isMultimodal = MULTIMODAL_ACTIONS.has(action);
+    const toolDef = TOOL_CALL_ACTIONS[action];
+    const useToolCalling = !!toolDef && !stream;
 
-    // Use tool calling for plan_review_check for structured output
-    const useToolCalling = action === "plan_review_check";
+    // Build messages
+    const messages: Array<Record<string, unknown>> = [
+      { role: "system", content: systemPrompt },
+    ];
+
+    if (isMultimodal && payload?.images && Array.isArray(payload.images)) {
+      // Multimodal: send images as content parts
+      const contentParts: Array<Record<string, unknown>> = [];
+
+      // Add text context if present
+      const textPayload = { ...payload };
+      delete textPayload.images;
+      delete textPayload.stream;
+      if (Object.keys(textPayload).length > 0) {
+        contentParts.push({ type: "text", text: JSON.stringify(textPayload) });
+      }
+
+      // Add image parts
+      for (const img of payload.images) {
+        const base64Data = img.startsWith("data:") ? img : `data:image/png;base64,${img}`;
+        contentParts.push({
+          type: "image_url",
+          image_url: { url: base64Data },
+        });
+      }
+
+      messages.push({ role: "user", content: contentParts });
+    } else {
+      // Text-only
+      const userMessage = typeof payload === "string" ? payload : JSON.stringify(payload);
+      messages.push({ role: "user", content: userMessage });
+    }
+
+    // Select model: use gemini-2.5-pro for multimodal, gemini-3-flash-preview for text
+    const model = isMultimodal ? "google/gemini-2.5-pro" : "google/gemini-3-flash-preview";
 
     const requestBody: Record<string, unknown> = {
-      model: "google/gemini-3-flash-preview",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ],
+      model,
+      messages,
       stream,
     };
 
-    if (useToolCalling && !stream) {
-      requestBody.tools = [PLAN_REVIEW_TOOL];
-      requestBody.tool_choice = { type: "function", function: { name: "submit_findings" } };
+    if (useToolCalling) {
+      requestBody.tools = [toolDef];
+      requestBody.tool_choice = { type: "function", function: { name: toolDef.function.name } };
     }
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -208,21 +326,18 @@ serve(async (req) => {
     if (!response.ok) {
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       if (response.status === 402) {
         return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds in Settings > Workspace > Usage." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const errorText = await response.text();
       console.error("AI gateway error:", response.status, errorText);
       return new Response(JSON.stringify({ error: "AI service error" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -234,12 +349,19 @@ serve(async (req) => {
 
     const data = await response.json();
 
-    // Handle tool call response for structured output
+    // Handle tool call response
     if (useToolCalling) {
       const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
       if (toolCall?.function?.arguments) {
         try {
           const parsed = JSON.parse(toolCall.function.arguments);
+          // For extract_project_info, return the object directly
+          if (action === "extract_project_info") {
+            return new Response(JSON.stringify({ content: JSON.stringify(parsed) }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          // For plan review, return findings array
           return new Response(JSON.stringify({ content: JSON.stringify(parsed.findings) }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -247,7 +369,6 @@ serve(async (req) => {
           console.error("Failed to parse tool call arguments:", e);
         }
       }
-      // Fallback to regular content
       const content = data.choices?.[0]?.message?.content || "[]";
       return new Response(JSON.stringify({ content }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
