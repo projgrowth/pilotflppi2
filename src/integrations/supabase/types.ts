@@ -14,7 +14,350 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      activity_log: {
+        Row: {
+          actor_id: string | null
+          actor_type: string
+          created_at: string
+          description: string
+          event_type: string
+          id: string
+          metadata: Json | null
+          project_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          actor_type?: string
+          created_at?: string
+          description: string
+          event_type: string
+          id?: string
+          metadata?: Json | null
+          project_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          actor_type?: string
+          created_at?: string
+          description?: string
+          event_type?: string
+          id?: string
+          metadata?: Json | null
+          project_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_log_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contractors: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          license_number: string | null
+          name: string
+          phone: string | null
+          portal_access: boolean
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          license_number?: string | null
+          name: string
+          phone?: string | null
+          portal_access?: boolean
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          license_number?: string | null
+          name?: string
+          phone?: string | null
+          portal_access?: boolean
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      inspections: {
+        Row: {
+          certificate_issued: boolean
+          created_at: string
+          id: string
+          inspection_type: string
+          inspector_id: string | null
+          notes: string | null
+          project_id: string
+          result: Database["public"]["Enums"]["inspection_result"]
+          scheduled_at: string | null
+          updated_at: string
+          video_call_url: string | null
+          virtual: boolean
+        }
+        Insert: {
+          certificate_issued?: boolean
+          created_at?: string
+          id?: string
+          inspection_type?: string
+          inspector_id?: string | null
+          notes?: string | null
+          project_id: string
+          result?: Database["public"]["Enums"]["inspection_result"]
+          scheduled_at?: string | null
+          updated_at?: string
+          video_call_url?: string | null
+          virtual?: boolean
+        }
+        Update: {
+          certificate_issued?: boolean
+          created_at?: string
+          id?: string
+          inspection_type?: string
+          inspector_id?: string | null
+          notes?: string | null
+          project_id?: string
+          result?: Database["public"]["Enums"]["inspection_result"]
+          scheduled_at?: string | null
+          updated_at?: string
+          video_call_url?: string | null
+          virtual?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inspections_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      milestone_buildings: {
+        Row: {
+          address: string
+          building_name: string
+          co_issued_date: string | null
+          contact_email: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          created_at: string
+          id: string
+          milestone_deadline: string | null
+          status: Database["public"]["Enums"]["milestone_status"]
+          stories: number
+          updated_at: string
+        }
+        Insert: {
+          address: string
+          building_name: string
+          co_issued_date?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          id?: string
+          milestone_deadline?: string | null
+          status?: Database["public"]["Enums"]["milestone_status"]
+          stories?: number
+          updated_at?: string
+        }
+        Update: {
+          address?: string
+          building_name?: string
+          co_issued_date?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          id?: string
+          milestone_deadline?: string | null
+          status?: Database["public"]["Enums"]["milestone_status"]
+          stories?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      permit_leads: {
+        Row: {
+          address: string
+          contractor_name: string | null
+          county: string
+          created_at: string
+          detected_at: string
+          id: string
+          outreach_status: Database["public"]["Enums"]["outreach_status"]
+          permit_type: string
+          project_value: number | null
+          updated_at: string
+        }
+        Insert: {
+          address: string
+          contractor_name?: string | null
+          county?: string
+          created_at?: string
+          detected_at?: string
+          id?: string
+          outreach_status?: Database["public"]["Enums"]["outreach_status"]
+          permit_type?: string
+          project_value?: number | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string
+          contractor_name?: string | null
+          county?: string
+          created_at?: string
+          detected_at?: string
+          id?: string
+          outreach_status?: Database["public"]["Enums"]["outreach_status"]
+          permit_type?: string
+          project_value?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      plan_reviews: {
+        Row: {
+          ai_check_status: string
+          ai_findings: Json | null
+          created_at: string
+          file_urls: string[]
+          id: string
+          project_id: string
+          reviewer_id: string | null
+          round: number
+          updated_at: string
+        }
+        Insert: {
+          ai_check_status?: string
+          ai_findings?: Json | null
+          created_at?: string
+          file_urls?: string[]
+          id?: string
+          project_id: string
+          reviewer_id?: string | null
+          round?: number
+          updated_at?: string
+        }
+        Update: {
+          ai_check_status?: string
+          ai_findings?: Json | null
+          created_at?: string
+          file_urls?: string[]
+          id?: string
+          project_id?: string
+          reviewer_id?: string | null
+          round?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_reviews_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          full_name: string
+          id: string
+          role: string
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string
+          id: string
+          role?: string
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string
+          id?: string
+          role?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      projects: {
+        Row: {
+          address: string
+          assigned_to: string | null
+          contractor_id: string | null
+          county: string
+          created_at: string
+          deadline_at: string | null
+          id: string
+          jurisdiction: string
+          name: string
+          notice_filed_at: string | null
+          services: string[]
+          status: Database["public"]["Enums"]["project_status"]
+          trade_type: string
+          updated_at: string
+        }
+        Insert: {
+          address: string
+          assigned_to?: string | null
+          contractor_id?: string | null
+          county?: string
+          created_at?: string
+          deadline_at?: string | null
+          id?: string
+          jurisdiction?: string
+          name: string
+          notice_filed_at?: string | null
+          services?: string[]
+          status?: Database["public"]["Enums"]["project_status"]
+          trade_type?: string
+          updated_at?: string
+        }
+        Update: {
+          address?: string
+          assigned_to?: string | null
+          contractor_id?: string | null
+          county?: string
+          created_at?: string
+          deadline_at?: string | null
+          id?: string
+          jurisdiction?: string
+          name?: string
+          notice_filed_at?: string | null
+          services?: string[]
+          status?: Database["public"]["Enums"]["project_status"]
+          trade_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "projects_contractor_id_fkey"
+            columns: ["contractor_id"]
+            isOneToOne: false
+            referencedRelation: "contractors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +366,30 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      inspection_result: "pass" | "fail" | "partial" | "pending"
+      milestone_status:
+        | "compliant"
+        | "due_soon"
+        | "overdue"
+        | "inspection_scheduled"
+      outreach_status:
+        | "new"
+        | "contacted"
+        | "responded"
+        | "converted"
+        | "declined"
+      project_status:
+        | "intake"
+        | "plan_review"
+        | "comments_sent"
+        | "resubmitted"
+        | "approved"
+        | "permit_issued"
+        | "inspection_scheduled"
+        | "inspection_complete"
+        | "certificate_issued"
+        | "on_hold"
+        | "cancelled"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +516,34 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      inspection_result: ["pass", "fail", "partial", "pending"],
+      milestone_status: [
+        "compliant",
+        "due_soon",
+        "overdue",
+        "inspection_scheduled",
+      ],
+      outreach_status: [
+        "new",
+        "contacted",
+        "responded",
+        "converted",
+        "declined",
+      ],
+      project_status: [
+        "intake",
+        "plan_review",
+        "comments_sent",
+        "resubmitted",
+        "approved",
+        "permit_issued",
+        "inspection_scheduled",
+        "inspection_complete",
+        "certificate_issued",
+        "on_hold",
+        "cancelled",
+      ],
+    },
   },
 } as const
