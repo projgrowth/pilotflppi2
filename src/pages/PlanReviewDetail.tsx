@@ -11,10 +11,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { PageHeader } from "@/components/PageHeader";
 import {
   Sparkles, Send, Loader2, Copy, Check,
   Wind, Upload, ArrowLeft, Mail, Phone,
-  FileDown, Printer, Plus
+  FileDown, Printer, Plus, PanelRightClose, PanelRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -155,6 +157,7 @@ export default function PlanReviewDetail() {
   const [findingStatuses, setFindingStatuses] = useState<Record<number, FindingStatus>>({});
   const [statusFilter, setStatusFilter] = useState<FindingStatus | "all">("all");
   const [showDiff, setShowDiff] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
 
   useEffect(() => {
     if (review?.finding_statuses) {
@@ -600,283 +603,264 @@ export default function PlanReviewDetail() {
         </div>
       )}
 
-      {/* ── Main Split Layout ── */}
-      <div className="flex-1 flex overflow-hidden">
-
+      {/* ── Main Split Layout (Resizable) ── */}
+      <ResizablePanelGroup direction="horizontal" className="flex-1 overflow-hidden">
         {/* ── LEFT: Document Viewer ── */}
-        <div className="flex-1 flex flex-col min-w-0 border-r">
-          {hasDocuments ? (
-            <>
-              {/* PDF rendering progress */}
-              {renderingPages && pageImages.length === 0 && (
-                <div className="flex-1 flex items-center justify-center">
-                  <div className="text-center space-y-3">
-                    <Loader2 className="h-8 w-8 text-accent mx-auto animate-spin" />
-                    <p className="text-sm text-muted-foreground">Loading document...</p>
-                    <Progress value={renderProgress} className="h-1 w-48 mx-auto" />
+        <ResizablePanel defaultSize={rightPanelCollapsed ? 100 : 65} minSize={35}>
+          <div className="h-full flex flex-col min-w-0">
+            {hasDocuments ? (
+              <>
+                {renderingPages && pageImages.length === 0 && (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="text-center space-y-3">
+                      <Loader2 className="h-8 w-8 text-accent mx-auto animate-spin" />
+                      <p className="text-sm text-muted-foreground">Loading document...</p>
+                      <Progress value={renderProgress} className="h-1 w-48 mx-auto" />
+                    </div>
                   </div>
+                )}
+                {pageImages.length > 0 && (
+                  <PlanMarkupViewer
+                    pageImages={pageImages}
+                    findings={findings}
+                    activeFindingIndex={activeFindingIndex}
+                    onAnnotationClick={handleAnnotationClick}
+                    className="flex-1"
+                  />
+                )}
+                <div className="shrink-0 border-t bg-muted/20 px-3 py-1.5 flex items-center gap-2 overflow-x-auto">
+                  {fileUrls.map((url, i) => {
+                    const name = decodeURIComponent(url.split("/").pop() || `Doc ${i + 1}`);
+                    return (
+                      <span key={i} className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded truncate max-w-[200px]">
+                        {name}
+                      </span>
+                    );
+                  })}
+                  <button className="text-[10px] text-accent hover:text-accent/80 transition-colors shrink-0" onClick={() => fileInputRef.current?.click()}>
+                    + Add file
+                  </button>
+                  <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFileUpload(e.target.files)} />
                 </div>
-              )}
-
-              {/* PDF viewer */}
-              {pageImages.length > 0 && (
-                <PlanMarkupViewer
-                  pageImages={pageImages}
-                  findings={findings}
-                  activeFindingIndex={activeFindingIndex}
-                  onAnnotationClick={handleAnnotationClick}
-                  className="flex-1"
-                />
-              )}
-
-              {/* File list strip at bottom */}
-              <div className="shrink-0 border-t bg-muted/20 px-3 py-1.5 flex items-center gap-2 overflow-x-auto">
-                {fileUrls.map((url, i) => {
-                  const name = decodeURIComponent(url.split("/").pop() || `Doc ${i + 1}`);
-                  return (
-                    <span key={i} className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded truncate max-w-[200px]">
-                      {name}
-                    </span>
-                  );
-                })}
-                <button
-                  className="text-[10px] text-accent hover:text-accent/80 transition-colors shrink-0"
+              </>
+            ) : (
+              <div className="flex-1 flex items-center justify-center">
+                <div
+                  className="border-2 border-dashed border-border/50 rounded-xl p-12 text-center cursor-pointer hover:border-accent/40 hover:bg-accent/5 transition-all max-w-md"
                   onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); handleFileUpload(e.dataTransfer.files); }}
                 >
-                  + Add file
-                </button>
-                <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFileUpload(e.target.files)} />
-              </div>
-            </>
-          ) : (
-            /* Upload prompt */
-            <div className="flex-1 flex items-center justify-center">
-              <div
-                className="border-2 border-dashed border-border/50 rounded-xl p-12 text-center cursor-pointer hover:border-accent/40 hover:bg-accent/5 transition-all max-w-md"
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => { e.preventDefault(); handleFileUpload(e.dataTransfer.files); }}
-              >
-                {uploading ? (
-                  <Loader2 className="h-10 w-10 text-accent mx-auto mb-3 animate-spin" />
-                ) : (
-                  <Upload className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-                )}
-                <p className="text-sm font-medium text-foreground">
-                  {uploading ? "Uploading..." : "Drop plan documents here"}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">PDF files up to 20MB</p>
-                <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFileUpload(e.target.files)} />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── RIGHT: Findings / Checklist / Letter Panel ── */}
-        <div className="w-[420px] shrink-0 flex flex-col overflow-hidden bg-card">
-          {/* Panel mode toggle */}
-          <div className="shrink-0 px-3 py-2 border-b flex items-center gap-1">
-            {(["findings", "checklist", "letter"] as RightPanelMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setRightPanel(mode)}
-                className={cn(
-                  "px-3 py-1 rounded-md text-xs font-medium transition-all capitalize",
-                  rightPanel === mode
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-muted/50"
-                )}
-              >
-                {mode}
-                {mode === "findings" && hasFindings && (
-                  <span className="ml-1 text-[9px] opacity-70">{findings.length}</span>
-                )}
-              </button>
-            ))}
-
-            {/* Severity summary in header */}
-            {hasFindings && rightPanel === "findings" && (
-              <div className="ml-auto flex items-center gap-1.5">
-                <SeverityDonut critical={criticalCount} major={majorCount} minor={minorCount} size={24} />
-                <span className="text-[10px] text-muted-foreground">
-                  {openCount} open
-                </span>
+                  {uploading ? (
+                    <Loader2 className="h-10 w-10 text-accent mx-auto mb-3 animate-spin" />
+                  ) : (
+                    <Upload className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+                  )}
+                  <p className="text-sm font-medium text-foreground">{uploading ? "Uploading..." : "Drop plan documents here"}</p>
+                  <p className="text-xs text-muted-foreground mt-1">PDF files up to 20MB</p>
+                  <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFileUpload(e.target.files)} />
+                </div>
               </div>
             )}
           </div>
+        </ResizablePanel>
 
-          {/* Panel content */}
-          <div className="flex-1 overflow-y-auto">
-            {/* ── FINDINGS ── */}
-            {rightPanel === "findings" && (
-              <div className="p-3 space-y-2">
-                {!hasFindings && !aiRunning && (
-                  <div className="text-center py-16">
-                    <p className="text-sm text-muted-foreground">No findings yet</p>
-                    <p className="text-xs text-muted-foreground/60 mt-1">
-                      {hasDocuments ? "Click \"Run AI Check\" to analyze your plans" : "Upload documents first"}
-                    </p>
+        {!rightPanelCollapsed && <ResizableHandle withHandle />}
+
+        {rightPanelCollapsed && (
+          <div className="w-10 shrink-0 border-l bg-card flex flex-col items-center py-2 gap-2">
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setRightPanelCollapsed(false)} title="Expand panel">
+              <PanelRight className="h-3.5 w-3.5" />
+            </Button>
+            {hasFindings && (
+              <span className="text-[9px] font-semibold text-muted-foreground" style={{ writingMode: "vertical-rl" }}>
+                {findings.length} findings
+              </span>
+            )}
+          </div>
+        )}
+
+        {!rightPanelCollapsed && (
+          <ResizablePanel defaultSize={35} minSize={20} maxSize={55}>
+            <div className="h-full flex flex-col overflow-hidden bg-card">
+              <div className="shrink-0 px-3 py-2 border-b flex items-center gap-1">
+                <Button size="icon" variant="ghost" className="h-6 w-6 mr-1" onClick={() => setRightPanelCollapsed(true)} title="Collapse panel">
+                  <PanelRightClose className="h-3.5 w-3.5" />
+                </Button>
+                {(["findings", "checklist", "letter"] as RightPanelMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setRightPanel(mode)}
+                    className={cn(
+                      "px-3 py-1 rounded-md text-xs font-medium transition-all capitalize",
+                      rightPanel === mode ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted/50"
+                    )}
+                  >
+                    {mode}
+                    {mode === "findings" && hasFindings && <span className="ml-1 text-[9px] opacity-70">{findings.length}</span>}
+                  </button>
+                ))}
+                {hasFindings && rightPanel === "findings" && (
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <SeverityDonut critical={criticalCount} major={majorCount} minor={minorCount} size={24} />
+                    <span className="text-[10px] text-muted-foreground">{openCount} open</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {rightPanel === "findings" && (
+                  <div className="p-3 space-y-2">
+                    {!hasFindings && !aiRunning && (
+                      <div className="text-center py-16">
+                        <p className="text-sm text-muted-foreground">No findings yet</p>
+                        <p className="text-xs text-muted-foreground/60 mt-1">
+                          {hasDocuments ? "Click \"Run AI Check\" to analyze your plans" : "Upload documents first"}
+                        </p>
+                      </div>
+                    )}
+                    {hasFindings && (
+                      <>
+                        <FindingStatusFilter
+                          activeFilter={statusFilter}
+                          counts={{ all: findings.length, open: openCount, resolved: resolvedCount, deferred: deferredCount }}
+                          onFilterChange={setStatusFilter}
+                        />
+                        {showDiff && previousFindings.length > 0 && (
+                          <div className="flex items-center gap-3 text-[10px] bg-muted/30 rounded-md px-2 py-1">
+                            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-accent" /> New</span>
+                            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" /> Carried</span>
+                          </div>
+                        )}
+                        <Accordion type="multiple" defaultValue={DISCIPLINE_ORDER.filter((d) => filteredGrouped[d])} className="space-y-1">
+                          {DISCIPLINE_ORDER.filter((d) => filteredGrouped[d]).map((discipline) => {
+                            const group = filteredGrouped[discipline];
+                            const Icon = getDisciplineIcon(discipline);
+                            const worst = getWorstSeverity(group);
+                            return (
+                              <AccordionItem key={discipline} value={discipline} className="border rounded-lg overflow-hidden">
+                                <AccordionTrigger className="px-3 py-2 hover:no-underline hover:bg-muted/30 text-xs">
+                                  <div className="flex items-center gap-2">
+                                    <Icon className={cn("h-3.5 w-3.5", getDisciplineColor(discipline))} />
+                                    <span className="font-medium">{getDisciplineLabel(discipline)}</span>
+                                    <Badge variant="secondary" className="text-[9px] h-4 px-1">{group.length}</Badge>
+                                    <div className={cn("h-1.5 w-1.5 rounded-full", {
+                                      "bg-destructive": worst === "critical",
+                                      "bg-[hsl(var(--warning))]": worst === "major",
+                                      "bg-muted-foreground/40": worst === "minor",
+                                    })} />
+                                  </div>
+                                </AccordionTrigger>
+                                <AccordionContent className="px-3 pb-3 space-y-1.5">
+                                  {group.map((finding, i) => {
+                                    const gi = globalIndexMap.get(finding)!;
+                                    const diffStatus = diffMap.get(gi);
+                                    return (
+                                      <div key={i} className="relative">
+                                        {showDiff && diffStatus && (
+                                          <div className={cn(
+                                            "absolute -left-2 top-1/2 -translate-y-1/2 w-1 h-1 rounded-full z-10",
+                                            diffStatus === "new" ? "bg-accent" : "bg-muted-foreground/40"
+                                          )} />
+                                        )}
+                                        <FindingCard
+                                          ref={(el) => { if (el) findingRefs.current.set(gi, el); }}
+                                          finding={finding}
+                                          index={i}
+                                          globalIndex={gi}
+                                          isActive={activeFindingIndex === gi}
+                                          onLocateClick={() => handleLocateFinding(gi)}
+                                          animationDelay={i * 40}
+                                          status={findingStatuses[gi] || "open"}
+                                          onStatusChange={(status) => updateFindingStatus(gi, status)}
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                                </AccordionContent>
+                              </AccordionItem>
+                            );
+                          })}
+                        </Accordion>
+                      </>
+                    )}
                   </div>
                 )}
 
-                {hasFindings && (
-                  <>
-                    <FindingStatusFilter
-                      activeFilter={statusFilter}
-                      counts={{ all: findings.length, open: openCount, resolved: resolvedCount, deferred: deferredCount }}
-                      onFilterChange={setStatusFilter}
-                    />
+                {rightPanel === "checklist" && (
+                  <div className="p-3">
+                    <DisciplineChecklist tradeType={review.project?.trade_type || "building"} findings={findings} />
+                  </div>
+                )}
 
-                    {showDiff && previousFindings.length > 0 && (
-                      <div className="flex items-center gap-3 text-[10px] bg-muted/30 rounded-md px-2 py-1">
-                        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-accent" /> New</span>
-                        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" /> Carried</span>
+                {rightPanel === "letter" && (
+                  <div className="p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Comment Letter</span>
+                      <div className="flex items-center gap-1.5">
+                        {hasFindings && (
+                          <CommentLetterExport
+                            projectName={review.project?.name || ""}
+                            address={review.project?.address || ""}
+                            county={county}
+                            jurisdiction={review.project?.jurisdiction || ""}
+                            tradeType={review.project?.trade_type || ""}
+                            round={review.round}
+                            findings={findings}
+                            findingStatuses={Object.fromEntries(Object.entries(findingStatuses).map(([k, v]) => [Number(k), v]))}
+                          />
+                        )}
+                        {commentLetter && !generatingLetter && (
+                          <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={copyLetter}>
+                            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    {!hasFindings && (
+                      <div className="text-center py-12">
+                        <p className="text-xs text-muted-foreground">Run AI check first to generate findings</p>
                       </div>
                     )}
-
-                    <Accordion type="multiple" defaultValue={DISCIPLINE_ORDER.filter((d) => filteredGrouped[d])} className="space-y-1">
-                      {DISCIPLINE_ORDER.filter((d) => filteredGrouped[d]).map((discipline) => {
-                        const group = filteredGrouped[discipline];
-                        const Icon = getDisciplineIcon(discipline);
-                        const worst = getWorstSeverity(group);
-                        return (
-                          <AccordionItem key={discipline} value={discipline} className="border rounded-lg overflow-hidden">
-                            <AccordionTrigger className="px-3 py-2 hover:no-underline hover:bg-muted/30 text-xs">
-                              <div className="flex items-center gap-2">
-                                <Icon className={cn("h-3.5 w-3.5", getDisciplineColor(discipline))} />
-                                <span className="font-medium">{getDisciplineLabel(discipline)}</span>
-                                <Badge variant="secondary" className="text-[9px] h-4 px-1">{group.length}</Badge>
-                                <div className={cn("h-1.5 w-1.5 rounded-full", {
-                                  "bg-destructive": worst === "critical",
-                                  "bg-[hsl(var(--warning))]": worst === "major",
-                                  "bg-muted-foreground/40": worst === "minor",
-                                })} />
-                              </div>
-                            </AccordionTrigger>
-                            <AccordionContent className="px-3 pb-3 space-y-1.5">
-                              {group.map((finding, i) => {
-                                const gi = globalIndexMap.get(finding)!;
-                                const diffStatus = diffMap.get(gi);
-                                return (
-                                  <div key={i} className="relative">
-                                    {showDiff && diffStatus && (
-                                      <div className={cn(
-                                        "absolute -left-2 top-1/2 -translate-y-1/2 w-1 h-1 rounded-full z-10",
-                                        diffStatus === "new" ? "bg-accent" : "bg-muted-foreground/40"
-                                      )} />
-                                    )}
-                                    <FindingCard
-                                      ref={(el) => { if (el) findingRefs.current.set(gi, el); }}
-                                      finding={finding}
-                                      index={i}
-                                      globalIndex={gi}
-                                      isActive={activeFindingIndex === gi}
-                                      onLocateClick={() => handleLocateFinding(gi)}
-                                      animationDelay={i * 40}
-                                      status={findingStatuses[gi] || "open"}
-                                      onStatusChange={(status) => updateFindingStatus(gi, status)}
-                                    />
-                                  </div>
-                                );
-                              })}
-                            </AccordionContent>
-                          </AccordionItem>
-                        );
-                      })}
-                    </Accordion>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* ── CHECKLIST ── */}
-            {rightPanel === "checklist" && (
-              <div className="p-3">
-                <DisciplineChecklist
-                  tradeType={review.project?.trade_type || "building"}
-                  findings={findings}
-                />
-              </div>
-            )}
-
-            {/* ── LETTER ── */}
-            {rightPanel === "letter" && (
-              <div className="p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Comment Letter</span>
-                  <div className="flex items-center gap-1.5">
-                    {hasFindings && (
-                      <CommentLetterExport
-                        projectName={review.project?.name || ""}
-                        address={review.project?.address || ""}
-                        county={county}
-                        jurisdiction={review.project?.jurisdiction || ""}
-                        tradeType={review.project?.trade_type || ""}
-                        round={review.round}
-                        findings={findings}
-                        findingStatuses={Object.fromEntries(
-                          Object.entries(findingStatuses).map(([k, v]) => [Number(k), v])
-                        )}
-                      />
-                    )}
-                    {commentLetter && !generatingLetter && (
-                      <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={copyLetter}>
-                        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                    {hasFindings && !commentLetter && !generatingLetter && (
+                      <Button variant="outline" className="w-full h-10 text-xs" onClick={() => generateCommentLetter(review)}>
+                        <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Generate Comment Letter
                       </Button>
                     )}
-                  </div>
-                </div>
-
-                {!hasFindings && (
-                  <div className="text-center py-12">
-                    <p className="text-xs text-muted-foreground">Run AI check first to generate findings</p>
-                  </div>
-                )}
-
-                {hasFindings && !commentLetter && !generatingLetter && (
-                  <Button
-                    variant="outline"
-                    className="w-full h-10 text-xs"
-                    onClick={() => generateCommentLetter(review)}
-                  >
-                    <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Generate Comment Letter
-                  </Button>
-                )}
-
-                {(commentLetter || generatingLetter) && (
-                  <>
-                    <div className="rounded-lg border bg-background overflow-hidden">
-                      <div className="border-b bg-muted/30 px-4 py-2 flex items-center justify-between">
-                        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                          FLPPI — Comment Letter
-                        </span>
-                        {generatingLetter && <Loader2 className="h-3 w-3 text-accent animate-spin" />}
-                      </div>
-                      <Textarea
-                        value={commentLetter}
-                        onChange={(e) => setCommentLetter(e.target.value)}
-                        rows={18}
-                        className="font-mono text-[11px] border-0 rounded-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-y"
-                        placeholder={generatingLetter ? "Generating..." : ""}
-                      />
-                    </div>
-                    {commentLetter && !generatingLetter && (
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" className="text-xs flex-1" onClick={() => generateCommentLetter(review)}>
-                          <Sparkles className="h-3 w-3 mr-1" /> Regenerate
-                        </Button>
-                        <Button size="sm" className="text-xs flex-1 bg-accent text-accent-foreground hover:bg-accent/90">
-                          <Send className="h-3 w-3 mr-1" /> Send to Contractor
-                        </Button>
-                      </div>
+                    {(commentLetter || generatingLetter) && (
+                      <>
+                        <div className="rounded-lg border bg-background overflow-hidden">
+                          <div className="border-b bg-muted/30 px-4 py-2 flex items-center justify-between">
+                            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">FLPPI — Comment Letter</span>
+                            {generatingLetter && <Loader2 className="h-3 w-3 text-accent animate-spin" />}
+                          </div>
+                          <Textarea
+                            value={commentLetter}
+                            onChange={(e) => setCommentLetter(e.target.value)}
+                            rows={18}
+                            className="font-mono text-[11px] border-0 rounded-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-y"
+                            placeholder={generatingLetter ? "Generating..." : ""}
+                          />
+                        </div>
+                        {commentLetter && !generatingLetter && (
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" className="text-xs flex-1" onClick={() => generateCommentLetter(review)}>
+                              <Sparkles className="h-3 w-3 mr-1" /> Regenerate
+                            </Button>
+                            <Button size="sm" className="text-xs flex-1 bg-accent text-accent-foreground hover:bg-accent/90">
+                              <Send className="h-3 w-3 mr-1" /> Send to Contractor
+                            </Button>
+                          </div>
+                        )}
+                      </>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
-            )}
-          </div>
-        </div>
-      </div>
+            </div>
+          </ResizablePanel>
+        )}
+      </ResizablePanelGroup>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useInspections } from "@/hooks/useInspections";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
-import { ClipboardCheck, Video, ChevronLeft, ChevronRight, Loader2, CheckCircle2 } from "lucide-react";
+import { ClipboardCheck, Video, ChevronLeft, ChevronRight, Loader2, CheckCircle2, FileText } from "lucide-react";
 import { format, startOfWeek, addDays, isSameDay } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -26,6 +27,7 @@ const tradeChecklists: Record<string, string[]> = {
 export default function Inspections() {
   const { data: inspections, isLoading } = useInspections();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [selectedInspection, setSelectedInspection] = useState<Inspection | null>(null);
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
@@ -186,11 +188,22 @@ export default function Inspections() {
                     <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-medium capitalize">{selectedInspection.project?.trade_type}</span>
                     <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-medium capitalize">{selectedInspection.inspection_type}</span>
                   </div>
-                  {selectedInspection.virtual && selectedInspection.video_call_url && (
-                    <a href={selectedInspection.video_call_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-teal hover:underline">
-                      <Video className="h-3.5 w-3.5" /> Join Video Call
-                    </a>
-                  )}
+                    {selectedInspection.virtual && selectedInspection.video_call_url && (
+                      <a href={selectedInspection.video_call_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-teal hover:underline">
+                        <Video className="h-3.5 w-3.5" /> Join Video Call
+                      </a>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs gap-1.5"
+                      onClick={() => {
+                        setSelectedInspection(null);
+                        navigate(`/projects/${selectedInspection.project_id}`);
+                      }}
+                    >
+                      <FileText className="h-3.5 w-3.5" /> View Project Plans
+                    </Button>
                   {selectedInspection.result !== "pending" && (
                     <div className={cn("flex items-center gap-2 mt-2 rounded-lg p-2 text-sm font-medium",
                       selectedInspection.result === "pass" ? "bg-success/10 text-success" :
