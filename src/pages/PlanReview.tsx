@@ -12,16 +12,12 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   FileSearch, Sparkles, Send, Loader2, ChevronRight, Copy, Check,
-  AlertTriangle, Wind, Upload, FileText, Printer, X
-import {
-  FileSearch, Sparkles, Send, Loader2, ChevronRight, Copy, Check,
   AlertTriangle, Wind, Upload, FileText, Printer, X, Plus
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { FindingCard, type Finding } from "@/components/FindingCard";
 import { NewPlanReviewWizard } from "@/components/NewPlanReviewWizard";
-import { FindingCard, type Finding } from "@/components/FindingCard";
 import {
   isHVHZ, getCountyLabel, getDisciplineIcon, getDisciplineColor,
   getDisciplineLabel, DISCIPLINE_ORDER, SCANNING_STEPS, type Discipline,
