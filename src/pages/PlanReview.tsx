@@ -292,10 +292,24 @@ export default function PlanReview() {
   return (
     <div className="p-6 md:p-8 max-w-7xl">
       {/* Page header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-medium font-[var(--font-display)]">Plan Review</h1>
-        <p className="text-sm text-muted-foreground mt-1">AI-powered code compliance analysis by county & jurisdiction</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-medium font-[var(--font-display)]">Plan Review</h1>
+          <p className="text-sm text-muted-foreground mt-1">AI-powered code compliance analysis by county & jurisdiction</p>
+        </div>
+        <Button
+          onClick={() => setWizardOpen(true)}
+          className="bg-accent text-accent-foreground hover:bg-accent/90"
+        >
+          <Plus className="h-4 w-4 mr-2" /> New Review
+        </Button>
       </div>
+
+      <NewPlanReviewWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        onComplete={handleWizardComplete}
+      />
 
       {/* Summary bar */}
       {totalReviews > 0 && (
