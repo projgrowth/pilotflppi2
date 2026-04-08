@@ -186,11 +186,22 @@ export default function Inspections() {
                     <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-medium capitalize">{selectedInspection.project?.trade_type}</span>
                     <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-medium capitalize">{selectedInspection.inspection_type}</span>
                   </div>
-                  {selectedInspection.virtual && selectedInspection.video_call_url && (
-                    <a href={selectedInspection.video_call_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-teal hover:underline">
-                      <Video className="h-3.5 w-3.5" /> Join Video Call
-                    </a>
-                  )}
+                    {selectedInspection.virtual && selectedInspection.video_call_url && (
+                      <a href={selectedInspection.video_call_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-teal hover:underline">
+                        <Video className="h-3.5 w-3.5" /> Join Video Call
+                      </a>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs gap-1.5"
+                      onClick={() => {
+                        setSelectedInspection(null);
+                        navigate(`/projects/${selectedInspection.project_id}`);
+                      }}
+                    >
+                      <FileText className="h-3.5 w-3.5" /> View Project Plans
+                    </Button>
                   {selectedInspection.result !== "pending" && (
                     <div className={cn("flex items-center gap-2 mt-2 rounded-lg p-2 text-sm font-medium",
                       selectedInspection.result === "pass" ? "bg-success/10 text-success" :
