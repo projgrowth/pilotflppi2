@@ -87,6 +87,23 @@ export default function PlanReview() {
   const [uploading, setUploading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+
+  const handleWizardComplete = useCallback((reviewId: string) => {
+    queryClient.invalidateQueries({ queryKey: ["plan-reviews"] });
+    // Find and select the new review after data refreshes
+    setTimeout(async () => {
+      const { data } = await supabase
+        .from("plan_reviews")
+        .select("*, project:projects(id, name, address, trade_type, county, jurisdiction)")
+        .eq("id", reviewId)
+        .single();
+      if (data) {
+        setSelectedReview(data as PlanReviewRow);
+        setActiveTab("overview");
+      }
+    }, 500);
+  }, [queryClient]);
 
   // Scanning step animation
   useEffect(() => {
