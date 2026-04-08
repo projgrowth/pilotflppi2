@@ -1,114 +1,91 @@
 
 
-# Upgrade Plan Review & AI Intelligence — County-Specific, Comprehensive, Aesthetic
+# Upgrade Plan Review: Document-Aware AI Analysis & UX Improvements
 
-## Summary
+## Context
 
-Transform the Plan Review page into a professional-grade, county-aware code review tool with rich UI, and upgrade the AI prompts to produce deeply specific, trustworthy findings tied to Florida county/jurisdiction requirements.
+The uploaded PDF is a complete set of architectural plans for a **new single-family home at 4644 Higel Ave, City of Sarasota** — Flood Zone AE, referencing FBC 2020 Residential 7th Edition. It includes: Location Plan (A01), Foundation Plan (A02), Floor Plan (A03), Elevations (A04-A05), Roof Plan (A06), Window/Door Schedule (A07), Sections/Details (A08-A09), Electrical Plan (A10), and RCP (A11).
+
+This reveals several gaps in the current system and opportunities for improvement.
 
 ---
 
-## 1. Enhanced AI System Prompts (Edge Function)
+## Audit of Current Implementation — Issues Found
 
-**File: `supabase/functions/ai/index.ts`**
+### 1. AI receives no actual plan data
+The AI Pre-Check only sends metadata (project name, address, trade type, county). It never receives the **actual document content** — so findings are entirely fabricated based on project type, not the real plans. This is the single biggest trust problem.
 
-Rewrite `plan_review_check` prompt to be county-aware and far more comprehensive:
+### 2. No document upload flow
+There is no way to attach or upload plan documents to a review. The `file_urls` column exists on `plan_reviews` but is never populated or used in the UI.
 
-- Include county/jurisdiction context: differentiate HVHZ (Miami-Dade, Broward) from non-HVHZ counties
-- Require the AI to reference specific FBC 2023 sections, Florida Statutes, and county amendments
-- Demand findings organized by discipline (Structural, Life Safety/Egress, Fire Protection, MEP, Energy, ADA, Site/Civil)
-- Require a confidence level per finding ("verified", "likely", "advisory")
-- Add a `discipline` field and `county_specific` boolean to the JSON schema
-- Require minimum 8-12 findings for realism and comprehensiveness
+### 3. Findings parsing is fragile
+The code does `result.match(/\[[\s\S]*\]/)` to extract JSON — but the edge function already returns structured output via tool calling. The frontend should just parse `result` directly as JSON.
 
-Updated JSON output schema:
-```text
-{
-  severity: "critical" | "major" | "minor",
-  discipline: "structural" | "life_safety" | "fire" | "mechanical" | "electrical" | "plumbing" | "energy" | "ada" | "site",
-  code_ref: "FBC 2023 Section ...",
-  county_specific: true/false,
-  page: "sheet ref",
-  description: "...",
-  recommendation: "...",
-  confidence: "verified" | "likely" | "advisory"
-}
-```
+### 4. No "Download as PDF" for comment letter
+The comment letter section mentions PDF download but only has copy. A proper PDF export would make this production-ready.
 
-Update `generate_comment_letter` prompt to:
-- Include the county name and jurisdiction in the letterhead context
-- Reference county-specific amendments when `county_specific` is true
-- Group deficiencies by discipline with numbered items
-- Include the firm's license info placeholder and proper FPP letterhead format
+### 5. Sheet panel is too narrow
+`sm:max-w-2xl` for a detailed review workspace is cramped — especially for findings with long descriptions and recommendations.
 
-## 2. Redesigned Plan Review Page
+### 6. No document viewer
+Users can't see the plans alongside findings. A side-by-side or tabbed view showing the uploaded PDF next to the findings would be transformative for usability.
 
-**File: `src/pages/PlanReview.tsx`** — Major rewrite
+### 7. County mismatch in document
+The uploaded plans reference "City of Sarasota" and FBC 2020-R 7th Edition, but the AI prompt is hardcoded to FBC 2023. The system should detect and flag code edition discrepancies.
 
-### Queue View (main list)
-- Add column headers: Project, Trade, County, Round, Status, Findings
-- Show a summary bar at top: total reviews, pending, complete, with findings count
-- Color-code rows by urgency (reviews with critical findings get a red left border)
+---
 
-### Detail Panel (Sheet) — Expanded to full review workspace
-- **Header**: Project name, address, county badge, jurisdiction, trade type pill, round indicator
-- **County Context Banner**: When project is in HVHZ county (Miami-Dade, Broward), show a distinct banner: "HVHZ Zone — Enhanced wind load & impact protection requirements apply"
-- **AI Pre-Check Button**: Larger, more prominent with county name in label: "Run AI Pre-Check (Miami-Dade)"
-- **Progress Animation**: Replace simple pulse with a multi-step scanning indicator showing disciplines being checked (Structural → Life Safety → Fire → MEP → Energy → ADA)
+## Implementation Plan
 
-### Findings Display — Grouped by Discipline
-- Group findings into collapsible discipline sections (Structural, Life Safety, Fire, etc.)
-- Each section header shows finding count and worst severity
-- Each finding card:
-  - Severity badge (color-coded) + confidence indicator (checkmark/question mark)
-  - County-specific flag with a small "County Amendment" tag when applicable
-  - Code reference in monospace, clickable feel
-  - Description in clear prose
-  - Recommendation in a subtle callout box
-- Summary statistics bar: X critical, Y major, Z minor — with visual breakdown
+### Step 1: Add Document Upload to Plan Review Detail Panel
+**Files: `src/pages/PlanReview.tsx`**
 
-### Comment Letter Section
-- Styled as a document preview with letterhead appearance (border, padding, serif-like rendering)
-- "Copy" and "Download as PDF" buttons (copy only for now, PDF placeholder)
-- Editable textarea with monospace font for professional look
+- Add a file upload zone (drag-and-drop) inside the review detail sheet
+- Upload PDFs to the existing `documents` storage bucket under path `plan-reviews/{review_id}/`
+- Save the file URLs to `plan_reviews.file_urls` column
+- Show uploaded documents as a list with thumbnail/icon and filename
 
-## 3. Enhanced Finding Card Component
+### Step 2: Parse & Feed Document Content to AI
+**Files: `supabase/functions/ai/index.ts`, `src/pages/PlanReview.tsx`**
 
-**New file: `src/components/FindingCard.tsx`**
+- When running AI Pre-Check, if `file_urls` exist, fetch the document text (extract via the edge function or pass the parsed text from frontend)
+- For the uploaded PDF approach: parse the document client-side using `pdf.js` or server-side, then send extracted text as part of the AI payload
+- Simpler approach for now: add a `document_text` field to the payload and have the frontend use the `document--parse_document` pattern — OR just send the document metadata (sheet index, notes, dimensions extracted) as structured context
+- Update the AI system prompt to say: "You will receive the actual plan content including sheet listings, structural notes, dimensions, and specifications. Analyze these against the applicable code edition."
 
-Reusable card for individual findings with:
-- Left color bar by severity
-- Discipline icon (wrench for MEP, shield for fire, etc.)
-- Confidence indicator
-- County-specific amendment badge
-- Expandable recommendation section
+### Step 3: Fix Findings JSON Parsing
+**File: `src/pages/PlanReview.tsx`**
 
-## 4. County Context Utilities
+- The edge function with tool calling already returns `{ content: JSON.stringify(findings) }` — so just `JSON.parse(result)` directly instead of regex matching
+- Add proper error boundary for malformed responses
 
-**New file: `src/lib/county-utils.ts`**
+### Step 4: Widen the Review Panel + Add Document Tab
+**File: `src/pages/PlanReview.tsx`**
 
-Helper functions:
-- `isHVHZ(county: string): boolean` — returns true for Miami-Dade, Broward
-- `getCountyLabel(county: string): string` — formatted display
-- `getDisciplineIcon(discipline: string)` — maps discipline to Lucide icon
-- `getDisciplineColor(discipline: string)` — maps discipline to color class
+- Widen sheet to `sm:max-w-4xl`
+- Add a tabbed interface: **Overview** | **Findings** | **Comment Letter** | **Documents**
+- Documents tab shows uploaded PDFs with an embedded viewer (`<iframe>` with the storage URL)
 
-## 5. Updated AI Payload (Frontend)
+### Step 5: Add PDF Export for Comment Letter
+**File: `src/pages/PlanReview.tsx`**
 
-Pass `county` and `jurisdiction` from the project to the AI call so the prompt can tailor findings to the specific locality.
+- Use browser `window.print()` with a styled print view as a lightweight PDF solution
+- Or generate via a simple edge function that formats the letter as HTML and returns a PDF
 
-## 6. Seed More Realistic Plan Review Data
+### Step 6: Improve Finding Cards
+**File: `src/components/FindingCard.tsx`**
 
-**Migration**: Add 2 more plan reviews for projects in different counties (Palm Beach, Sarasota) to showcase county variation.
+- Show finding index number for easy reference in comment letters (e.g., "Finding #3")
+- Add a "flag for review" toggle per finding
+- Show the sheet reference more prominently (link to document tab)
 
 ---
 
 ## Technical Details
 
-- **Edge function changes**: Only prompt text changes + updated JSON schema in the system prompt — no structural changes to the function
-- **Tool calling for structured output**: Switch from asking the AI for raw JSON to using the tool-calling pattern for reliable structured extraction of findings
-- **No new dependencies**: All UI built with existing shadcn components (Accordion for discipline groups, Badge, Card)
-- **Files modified**: `supabase/functions/ai/index.ts`, `src/pages/PlanReview.tsx`
-- **Files created**: `src/components/FindingCard.tsx`, `src/lib/county-utils.ts`
-- **Migration**: 1 small seed migration for additional plan reviews
+- **Storage**: Uses existing `documents` bucket (public). Files stored at `plan-reviews/{review_id}/{filename}`
+- **No new dependencies needed**: File upload uses native `<input type="file">` + Supabase storage SDK. PDF viewing uses `<iframe>` with the public URL.
+- **Edge function changes**: Add `document_context` field handling in the `plan_review_check` action. The prompt already asks for comprehensive findings — now it will have real data to analyze.
+- **Files modified**: `src/pages/PlanReview.tsx`, `src/components/FindingCard.tsx`, `supabase/functions/ai/index.ts`
+- **No new migrations needed**: `file_urls` column already exists on `plan_reviews`
 
