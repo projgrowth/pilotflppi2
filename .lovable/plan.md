@@ -1,102 +1,92 @@
 
 
-## Plan: Rebrand PermitPilot to Florida Private Providers + Portal Improvements
+## Revised Plan: Plan Review Overhaul — Routing, UX, and PDF Fixes
 
-### Analysis of floridaprivateproviders.com
+### Problems to Fix
 
-The FPP website uses:
-- **Colors**: Deep forest green (#2D5A3D-ish), warm off-white/cream backgrounds, dark charcoal text, gold/amber accents
-- **Logo**: Text-based "Florida / PRIVATE PROVIDERS" with a horizontal rule between
-- **Typography**: Clean sans-serif body, serif for display headings
-- **Tone**: Professional, trustworthy, Florida-centric. Key stats: License #AR92053, 44+ years, 67 counties, 2,500+ projects, Google 5.0
-- **Structure**: "Three Simple Steps" flow, testimonials, FAQ, leadership team
+1. **Comment Letter PDF blocked by browser**: Uses `window.open()` + `window.print()` which popup blockers kill. Replace with in-browser PDF generation using `jspdf` or a Blob download approach.
+2. **Document preview broken**: `<iframe src={supabaseUrl}>` fails due to Content-Disposition headers. Replace with the existing `pdfjs-dist` renderer already in the codebase.
+3. **Plan Review cramped in a Sheet drawer**: The entire review workspace lives inside a `<Sheet>` side panel. Convert to a full-page route `/plan-review/:id` for a proper workspace experience.
+4. **No deep linking**: Can't share or bookmark a specific review. Adding a route fixes this.
+5. **Cheesy icons**: Emoji 📄 in FindingCard (line 167), excessive decorative icons throughout. Strip to functional-only icons.
+6. **Finding click doesn't auto-navigate to plan location**: Clicking a finding should auto-load page images and scroll to the annotation. Currently requires manually clicking "Load Annotations" first.
 
-### What needs to change
+### What Changes
 
-**1. Branding overhaul (colors, logo, metadata)**
-- Update CSS custom properties: primary to deep green (#1B4332), accent to warm gold (#C9A84C stays), teal replaced with forest green
-- Sidebar: dark green instead of navy
-- Replace the hexagon SVG logo with text-based "Florida / PRIVATE PROVIDERS" matching their wordmark
-- Update `index.html` title and meta tags to "Florida Private Providers — PermitPilot"
-- Update sidebar brand text from "PermitPilot" subtitle to "Licensed Private Provider"
+**1. Route restructure** — `src/App.tsx`, new `src/pages/PlanReviewDetail.tsx`
+- Add route `/plan-review/:id`
+- Keep `/plan-review` as the list/index page (extract from current file)
+- Detail page gets the full viewport — no Sheet wrapper
+- Back button returns to list
 
-**2. Login page — real auth with branded experience**
-- Currently just redirects to dashboard (no auth gate)
-- Build a proper login/signup page with FPP branding: logo, green gradient background, email/password form, Google sign-in
-- Add route protection so unauthenticated users are redirected to /login
+**2. Fix document preview** — `src/pages/PlanReviewDetail.tsx` (Docs tab)
+- Replace `<iframe src={url}>` (line 1050) with fetch → blob → `renderPDFPagesToImages()` (already exists in codebase)
+- Reuse `PlanMarkupViewer` component for document viewing
 
-**3. Dashboard refinements**
-- Add the FPP stats bar (License #AR92053, 44+ Yrs, 67 Counties) as a subtle footer or header element
-- Refine greeting area with company branding context
+**3. Fix Comment Letter export** — `src/components/CommentLetterExport.tsx`
+- Replace `window.open()` + `window.print()` with Blob-based approach:
+  - Build HTML string (already done)
+  - Create an `<iframe>` in the DOM, write HTML, call `contentWindow.print()` for Print
+  - For Export PDF: use the same print dialog (browser Save as PDF) but with a clear CTA, OR generate a downloadable HTML file
+- Alternative: use `html2canvas` + `jspdf` for a true `.pdf` download without popups
 
-**4. Missing functional pages**
-- **AI Briefing, Milestone Radar, Lead Radar, Documents**: Audit these pages — ensure they query real data and have no placeholder content
-- **Contractors page**: Verify it works with the database
+**4. Auto-load annotations on finding click** — `src/pages/PlanReviewDetail.tsx`
+- When `handleLocateFinding(index)` is called and `pageImages` is empty, auto-trigger `renderDocumentPages()` first, then set the active finding
+- Remove the manual "Load Annotations" button — always auto-load when findings have markup data
 
-**5. Overall polish**
-- Green color scheme throughout all components (buttons, chips, rings, donut charts)
-- Card borders and hover states using the new green palette
-- Consistent use of the FPP green for active sidebar items instead of gold
+**5. Clean up icons** — Multiple files
+- `FindingCard.tsx` line 167: Replace `📄` emoji with nothing (just "Sheet: {page}")
+- Remove purely decorative icons from buttons where text is sufficient
+- Sidebar: already clean, keep as-is
 
-### Files to modify
+**6. Contractor info in review header** — `src/pages/PlanReviewDetail.tsx`
+- Update query to join `projects → contractors` via `contractor_id`
+- Show contractor name, email, phone in the review header card
+- Add mailto: link for quick contact
 
-| File | Change |
+### Files
+
+| File | Action |
 |------|--------|
-| `src/index.css` | Update all CSS custom properties to FPP green palette |
-| `tailwind.config.ts` | No structural changes needed (uses CSS vars) |
-| `index.html` | Update title, meta tags to FPP branding |
-| `src/components/AppSidebar.tsx` | Replace logo SVG with FPP wordmark, update brand text |
-| `src/pages/Login.tsx` | Build full auth page with email/password, Google sign-in, FPP branding |
-| `src/contexts/AuthContext.tsx` | Already functional — no changes needed |
-| `src/App.tsx` | Add auth guard wrapper for protected routes |
-| `src/pages/Dashboard.tsx` | Add license/stats bar, refine branding references |
-| `src/pages/AIBriefing.tsx` | Audit for mock data |
-| `src/pages/LeadRadar.tsx` | Audit for mock data |
-| `src/pages/MilestoneRadar.tsx` | Audit for mock data |
-| `src/pages/Documents.tsx` | Audit for mock data |
-| `src/pages/Contractors.tsx` | Audit for mock data |
+| `src/App.tsx` | Add `/plan-review/:id` route |
+| `src/pages/PlanReview.tsx` | Strip down to list-only (remove Sheet detail, ~500 lines removed) |
+| `src/pages/PlanReviewDetail.tsx` | **New** — full-page review workspace extracted from PlanReview.tsx |
+| `src/components/CommentLetterExport.tsx` | Fix PDF export to avoid popup blockers |
+| `src/components/FindingCard.tsx` | Remove emoji icon, clean up decorative elements |
+| `src/components/PlanMarkupViewer.tsx` | Minor — ensure auto-scroll works on initial load |
 
-### Color palette mapping
+### Comment Letter Fix Detail
 
 ```text
-Current (Navy/Gold)          →  FPP (Green/Gold)
-──────────────────────────────────────────────────
---primary: navy #0B1F3A      →  forest green #1B4332
---sidebar-bg: navy           →  dark green #14332A
---accent: gold #C9A84C       →  gold #C9A84C (keep)
---teal: #2A9D8F              →  sage green #2D6A4F
---background: cream          →  warm cream (keep)
---border: warm tan           →  slightly greener neutral
+Current (broken):
+  window.open("", "_blank")  →  popup blocked  →  nothing happens
+
+Fixed approach:
+  1. Create hidden <iframe> in DOM
+  2. Write letter HTML into iframe
+  3. Call iframe.contentWindow.print()
+  4. Remove iframe after print dialog closes
+  
+  No popup. No new tab. Works in all browsers.
 ```
 
-### Auth flow
+### Route Structure
 
 ```text
-User visits any route
-  → AuthGuard checks session
-    → No session → redirect /login
-    → Has session → render AppLayout + children
-
-/login page:
-  ┌─────────────────────────────┐
-  │  Florida                    │
-  │  PRIVATE PROVIDERS          │
-  │  ───────────────────        │
-  │                             │
-  │  [Email input]              │
-  │  [Password input]          │
-  │  [Sign In button — green]   │
-  │  ── or ──                   │
-  │  [Continue with Google]     │
-  │                             │
-  │  Don't have an account?     │
-  │  Sign up                    │
-  └─────────────────────────────┘
+/plan-review          →  Review list (cards with project info)
+/plan-review/:id      →  Full-page workspace (tabs: Overview, Findings, Checklist, Letter, Docs)
 ```
 
-### Estimated scope
-- 10-12 files modified
-- 1 new component (AuthGuard or inline in App.tsx)
-- No database migrations needed
-- Auth configuration: enable Google OAuth via cloud tools
+The detail page uses `useParams` to load the specific review and renders the full workspace with proper back navigation.
+
+### Auto-annotation Flow
+
+```text
+User clicks finding card "Locate on plan"
+  → Check if pageImages loaded
+    → No  → auto-fetch PDFs, render pages, then set activeFindingIndex
+    → Yes → set activeFindingIndex immediately
+  → PlanMarkupViewer scrolls to annotation
+  → Finding card highlights with ring
+```
 
