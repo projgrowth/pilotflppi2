@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  FileSearch, Sparkles, Send, Loader2, Copy, Check,
+  Sparkles, Send, Loader2, Copy, Check,
   Wind, Upload, FileText, X, ArrowLeft, Eye, Mail, Phone
 } from "lucide-react";
 import { toast } from "sonner";
