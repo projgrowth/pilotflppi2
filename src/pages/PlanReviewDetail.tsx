@@ -470,7 +470,7 @@ export default function PlanReviewDetail() {
     round: r.round,
     created_at: r.created_at,
     ai_check_status: r.ai_check_status,
-    findingsCount: Array.isArray(r.ai_findings) ? (r.ai_findings as Finding[]).length : 0,
+    findingsCount: Array.isArray(r.ai_findings) ? (r.ai_findings as unknown as Finding[]).length : 0,
   }));
 
   const diffMap = new Map<number, "new" | "carried">();
