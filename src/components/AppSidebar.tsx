@@ -1,4 +1,4 @@
-import { useLocation, Link, useNavigate } from "react-router-dom";
+import { useLocation, Link, useNavigate, useParams, matchPath } from "react-router-dom";
 import {
   LayoutDashboard,
   FolderKanban,
@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Menu,
   LogOut,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

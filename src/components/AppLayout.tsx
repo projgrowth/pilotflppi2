@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { CommandPalette } from "@/components/CommandPalette";
 
 export function AppLayout() {
   return (
@@ -11,6 +12,7 @@ export function AppLayout() {
           <Outlet />
         </ErrorBoundary>
       </main>
+      <CommandPalette />
     </div>
   );
 }
