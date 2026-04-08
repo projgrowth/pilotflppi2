@@ -864,7 +864,6 @@ export default function PlanReviewDetail() {
     </div>
   );
 }
-                    <Loader2 className="h-8 w-8 text-accent mx-auto animate-spin" />
                     <p className="text-sm text-muted-foreground">Loading document...</p>
                     <Progress value={renderProgress} className="h-1 w-48 mx-auto" />
                   </div>
