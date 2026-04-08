@@ -1,0 +1,2 @@
+CREATE POLICY "Anon users can insert projects" ON public.projects FOR INSERT TO anon WITH CHECK (true);
+CREATE POLICY "Anon users can insert plan_reviews" ON public.plan_reviews FOR INSERT TO anon WITH CHECK (true);

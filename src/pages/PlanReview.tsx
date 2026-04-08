@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { callAI, streamAI } from "@/lib/ai";
@@ -12,11 +12,12 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   FileSearch, Sparkles, Send, Loader2, ChevronRight, Copy, Check,
-  AlertTriangle, Wind, Upload, FileText, Printer, X
+  AlertTriangle, Wind, Upload, FileText, Printer, X, Plus
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { FindingCard, type Finding } from "@/components/FindingCard";
+import { NewPlanReviewWizard } from "@/components/NewPlanReviewWizard";
 import {
   isHVHZ, getCountyLabel, getDisciplineIcon, getDisciplineColor,
   getDisciplineLabel, DISCIPLINE_ORDER, SCANNING_STEPS, type Discipline,
@@ -86,6 +87,23 @@ export default function PlanReview() {
   const [uploading, setUploading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+
+  const handleWizardComplete = useCallback((reviewId: string) => {
+    queryClient.invalidateQueries({ queryKey: ["plan-reviews"] });
+    // Find and select the new review after data refreshes
+    setTimeout(async () => {
+      const { data } = await supabase
+        .from("plan_reviews")
+        .select("*, project:projects(id, name, address, trade_type, county, jurisdiction)")
+        .eq("id", reviewId)
+        .single();
+      if (data) {
+        setSelectedReview(data as PlanReviewRow);
+        setActiveTab("overview");
+      }
+    }, 500);
+  }, [queryClient]);
 
   // Scanning step animation
   useEffect(() => {
@@ -274,10 +292,24 @@ export default function PlanReview() {
   return (
     <div className="p-6 md:p-8 max-w-7xl">
       {/* Page header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-medium font-[var(--font-display)]">Plan Review</h1>
-        <p className="text-sm text-muted-foreground mt-1">AI-powered code compliance analysis by county & jurisdiction</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-medium font-[var(--font-display)]">Plan Review</h1>
+          <p className="text-sm text-muted-foreground mt-1">AI-powered code compliance analysis by county & jurisdiction</p>
+        </div>
+        <Button
+          onClick={() => setWizardOpen(true)}
+          className="bg-accent text-accent-foreground hover:bg-accent/90"
+        >
+          <Plus className="h-4 w-4 mr-2" /> New Review
+        </Button>
       </div>
+
+      <NewPlanReviewWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        onComplete={handleWizardComplete}
+      />
 
       {/* Summary bar */}
       {totalReviews > 0 && (
