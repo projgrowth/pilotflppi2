@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { callAI, streamAI } from "@/lib/ai";
+import { renderPDFPagesToImages, type PDFPageImage } from "@/lib/pdf-utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,14 +11,19 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileSearch, Sparkles, Send, Loader2, ChevronRight, Copy, Check,
-  AlertTriangle, Wind, Upload, FileText, Printer, X, Plus
+  Wind, Upload, FileText, Printer, X, Plus, Eye
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { FindingCard, type Finding } from "@/components/FindingCard";
 import { NewPlanReviewWizard } from "@/components/NewPlanReviewWizard";
+import { SeverityDonut } from "@/components/SeverityDonut";
+import { ScanTimeline } from "@/components/ScanTimeline";
+import { PlanMarkupViewer } from "@/components/PlanMarkupViewer";
+import { DeadlineRing } from "@/components/DeadlineRing";
 import {
   isHVHZ, getCountyLabel, getDisciplineIcon, getDisciplineColor,
   getDisciplineLabel, DISCIPLINE_ORDER, SCANNING_STEPS, type Discipline,
@@ -69,6 +75,30 @@ function hasCriticalFindings(review: PlanReviewRow): boolean {
   return Array.isArray(findings) && findings.some((f) => f.severity === "critical");
 }
 
+// Retry wrapper with exponential backoff
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let lastError: Error | null = null;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (i < maxRetries - 1) {
+        await new Promise((r) => setTimeout(r, Math.pow(2, i) * 1000));
+      }
+    }
+  }
+  throw lastError;
+}
+
+// Calculate days remaining from created_at (21-day statutory period)
+function getDaysRemaining(createdAt: string): number {
+  const deadline = new Date(createdAt);
+  deadline.setDate(deadline.getDate() + 21);
+  const now = new Date();
+  return Math.max(0, Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+}
+
 const severityColors: Record<string, string> = {
   critical: "bg-destructive text-destructive-foreground",
   major: "bg-[hsl(var(--warning))] text-[hsl(var(--warning-foreground))]",
@@ -88,10 +118,14 @@ export default function PlanReview() {
   const [activeTab, setActiveTab] = useState("overview");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [activeFindingIndex, setActiveFindingIndex] = useState<number | null>(null);
+  const [pageImages, setPageImages] = useState<PDFPageImage[]>([]);
+  const [renderingPages, setRenderingPages] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
+  const findingRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const handleWizardComplete = useCallback((reviewId: string) => {
     queryClient.invalidateQueries({ queryKey: ["plan-reviews"] });
-    // Find and select the new review after data refreshes
     setTimeout(async () => {
       const { data } = await supabase
         .from("plan_reviews")
@@ -125,26 +159,15 @@ export default function PlanReview() {
     try {
       const newUrls: string[] = [...(selectedReview.file_urls || [])];
       for (const file of Array.from(files)) {
-        if (file.type !== "application/pdf") {
-          toast.error(`${file.name} is not a PDF`);
-          continue;
-        }
-        if (file.size > 20 * 1024 * 1024) {
-          toast.error(`${file.name} exceeds 20MB limit`);
-          continue;
-        }
+        if (file.type !== "application/pdf") { toast.error(`${file.name} is not a PDF`); continue; }
+        if (file.size > 20 * 1024 * 1024) { toast.error(`${file.name} exceeds 20MB limit`); continue; }
         const path = `plan-reviews/${selectedReview.id}/${file.name}`;
-        const { error: uploadError } = await supabase.storage
-          .from("documents")
-          .upload(path, file, { upsert: true });
+        const { error: uploadError } = await supabase.storage.from("documents").upload(path, file, { upsert: true });
         if (uploadError) throw uploadError;
         const { data: urlData } = supabase.storage.from("documents").getPublicUrl(path);
         newUrls.push(urlData.publicUrl);
       }
-      await supabase
-        .from("plan_reviews")
-        .update({ file_urls: newUrls })
-        .eq("id", selectedReview.id);
+      await supabase.from("plan_reviews").update({ file_urls: newUrls }).eq("id", selectedReview.id);
       setSelectedReview({ ...selectedReview, file_urls: newUrls });
       queryClient.invalidateQueries({ queryKey: ["plan-reviews"] });
       toast.success("Documents uploaded");
@@ -163,48 +186,109 @@ export default function PlanReview() {
     queryClient.invalidateQueries({ queryKey: ["plan-reviews"] });
   };
 
-  // --- AI Pre-Check ---
+  // --- Render PDF pages for visual analysis ---
+  const renderDocumentPages = async (review: PlanReviewRow): Promise<PDFPageImage[]> => {
+    if (!review.file_urls || review.file_urls.length === 0) return [];
+    setRenderingPages(true);
+    setRenderProgress(0);
+
+    try {
+      const allImages: PDFPageImage[] = [];
+      for (let fi = 0; fi < review.file_urls.length; fi++) {
+        const url = review.file_urls[fi];
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const file = new File([blob], `doc-${fi}.pdf`, { type: "application/pdf" });
+        const images = await renderPDFPagesToImages(file, 10, 150);
+        allImages.push(...images.map((img, idx) => ({ ...img, pageIndex: allImages.length + idx })));
+        setRenderProgress(((fi + 1) / review.file_urls.length) * 100);
+      }
+      setPageImages(allImages);
+      return allImages;
+    } catch (err) {
+      console.error("Failed to render pages:", err);
+      return [];
+    } finally {
+      setRenderingPages(false);
+    }
+  };
+
+  // --- AI Pre-Check (with visual analysis) ---
   const runAICheck = async (review: PlanReviewRow) => {
     setAiRunning(true);
     setActiveTab("findings");
+    setActiveFindingIndex(null);
     try {
       await supabase.from("plan_reviews").update({ ai_check_status: "running" }).eq("id", review.id);
       queryClient.invalidateQueries({ queryKey: ["plan-reviews"] });
 
-      const payload: Record<string, unknown> = {
-        project_name: review.project?.name,
-        address: review.project?.address,
-        trade_type: review.project?.trade_type,
-        county: review.project?.county,
-        jurisdiction: review.project?.jurisdiction,
-        round: review.round,
-      };
+      // Try visual analysis first if documents are attached
+      let findings: Finding[] = [];
+      const hasFiles = review.file_urls && review.file_urls.length > 0;
 
-      // If documents are attached, note them for the AI
-      if (review.file_urls && review.file_urls.length > 0) {
-        payload.document_context = `The following plan documents are attached to this review: ${review.file_urls.map((u) => {
-          const name = u.split("/").pop() || "unknown";
-          return name;
-        }).join(", ")}. Analyze these plans for code compliance.`;
+      if (hasFiles) {
+        // Render pages for visual analysis
+        const images = await renderDocumentPages(review);
+
+        if (images.length > 0) {
+          // Use visual analysis with actual plan images
+          const result = await withRetry(() =>
+            callAI({
+              action: "plan_review_check_visual",
+              payload: {
+                project_name: review.project?.name,
+                address: review.project?.address,
+                trade_type: review.project?.trade_type,
+                county: review.project?.county,
+                jurisdiction: review.project?.jurisdiction,
+                round: review.round,
+                images: images.map((img) => img.base64),
+              },
+            })
+          );
+
+          try {
+            findings = JSON.parse(result);
+            if (!Array.isArray(findings)) {
+              const match = result.match(/\[[\s\S]*\]/);
+              findings = match ? JSON.parse(match[0]) : [];
+            }
+          } catch {
+            try {
+              const match = result.match(/\[[\s\S]*\]/);
+              if (match) findings = JSON.parse(match[0]);
+            } catch { /* fallback below */ }
+          }
+        }
       }
 
-      const result = await callAI({
-        action: "plan_review_check",
-        payload,
-      });
-
-      let findings: Finding[] = [];
-      try {
-        findings = JSON.parse(result);
-        if (!Array.isArray(findings)) {
-          const match = result.match(/\[[\s\S]*\]/);
-          findings = match ? JSON.parse(match[0]) : [];
+      // Fallback to text-only analysis
+      if (findings.length === 0) {
+        const payload: Record<string, unknown> = {
+          project_name: review.project?.name,
+          address: review.project?.address,
+          trade_type: review.project?.trade_type,
+          county: review.project?.county,
+          jurisdiction: review.project?.jurisdiction,
+          round: review.round,
+        };
+        if (hasFiles) {
+          payload.document_context = `Plans attached: ${review.file_urls.map((u) => decodeURIComponent(u.split("/").pop() || "")).join(", ")}`;
         }
-      } catch {
+
+        const result = await withRetry(() => callAI({ action: "plan_review_check", payload }));
         try {
-          const match = result.match(/\[[\s\S]*\]/);
-          if (match) findings = JSON.parse(match[0]);
-        } catch { findings = []; }
+          findings = JSON.parse(result);
+          if (!Array.isArray(findings)) {
+            const match = result.match(/\[[\s\S]*\]/);
+            findings = match ? JSON.parse(match[0]) : [];
+          }
+        } catch {
+          try {
+            const match = result.match(/\[[\s\S]*\]/);
+            if (match) findings = JSON.parse(match[0]);
+          } catch { findings = []; }
+        }
       }
 
       await supabase.from("plan_reviews").update({
@@ -214,7 +298,9 @@ export default function PlanReview() {
 
       queryClient.invalidateQueries({ queryKey: ["plan-reviews"] });
       setSelectedReview({ ...review, ai_check_status: "complete", ai_findings: findings });
-      toast.success(`AI check complete — ${findings.length} findings`);
+      toast.success(`AI check complete — ${findings.length} findings`, {
+        action: { label: "View Findings", onClick: () => setActiveTab("findings") },
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "AI check failed");
       await supabase.from("plan_reviews").update({ ai_check_status: "error" }).eq("id", review.id);
@@ -262,24 +348,36 @@ export default function PlanReview() {
     if (!w) return;
     w.document.write(`
       <html><head><title>Comment Letter</title>
-      <style>body{font-family:monospace;white-space:pre-wrap;padding:40px;font-size:12px;line-height:1.6;max-width:800px;margin:0 auto;}</style>
+      <style>body{font-family:Georgia,serif;white-space:pre-wrap;padding:60px;font-size:11px;line-height:1.7;max-width:700px;margin:0 auto;color:#1a1a1a;}</style>
       </head><body>${commentLetter.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</body></html>
     `);
     w.document.close();
     w.print();
   };
 
+  // Finding interaction handlers
+  const handleAnnotationClick = useCallback((index: number) => {
+    setActiveFindingIndex(index);
+    const el = findingRefs.current.get(index);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+
+  const handleLocateFinding = useCallback((index: number) => {
+    setActiveFindingIndex(index);
+  }, []);
+
   const findings = (selectedReview?.ai_findings as Finding[]) || [];
   const groupedFindings = groupFindingsByDiscipline(findings);
   const county = selectedReview?.project?.county || "";
   const hvhz = isHVHZ(county);
   const fileUrls = selectedReview?.file_urls || [];
+  const hasMarkup = findings.some((f) => f.markup);
 
   const criticalCount = findings.filter((f) => f.severity === "critical").length;
   const majorCount = findings.filter((f) => f.severity === "major").length;
   const minorCount = findings.filter((f) => f.severity === "minor").length;
 
-  // Compute global finding index across discipline groups
+  // Compute global finding index
   let globalIndexCounter = 0;
   const globalIndexMap = new Map<Finding, number>();
   for (const d of DISCIPLINE_ORDER) {
@@ -297,19 +395,12 @@ export default function PlanReview() {
           <h1 className="text-2xl font-medium font-[var(--font-display)]">Plan Review</h1>
           <p className="text-sm text-muted-foreground mt-1">AI-powered code compliance analysis by county & jurisdiction</p>
         </div>
-        <Button
-          onClick={() => setWizardOpen(true)}
-          className="bg-accent text-accent-foreground hover:bg-accent/90"
-        >
+        <Button onClick={() => setWizardOpen(true)} className="bg-accent text-accent-foreground hover:bg-accent/90">
           <Plus className="h-4 w-4 mr-2" /> New Review
         </Button>
       </div>
 
-      <NewPlanReviewWizard
-        open={wizardOpen}
-        onOpenChange={setWizardOpen}
-        onComplete={handleWizardComplete}
-      />
+      <NewPlanReviewWizard open={wizardOpen} onOpenChange={setWizardOpen} onComplete={handleWizardComplete} />
 
       {/* Summary bar */}
       {totalReviews > 0 && (
@@ -335,12 +426,13 @@ export default function PlanReview() {
         </div>
       )}
 
-      {/* Queue table header */}
+      {/* Queue header */}
       {!isLoading && (reviews || []).length > 0 && (
-        <div className="hidden md:grid grid-cols-[1fr_100px_120px_80px_100px_80px_24px] gap-4 px-4 mb-2">
+        <div className="hidden md:grid grid-cols-[1fr_100px_120px_60px_80px_100px_80px_24px] gap-4 px-4 mb-2">
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Project</span>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Trade</span>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">County</span>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Days</span>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Round</span>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Status</span>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Findings</span>
@@ -352,14 +444,19 @@ export default function PlanReview() {
       {isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />
+            <Skeleton key={i} className="h-16 rounded-lg" />
           ))}
         </div>
       ) : (reviews || []).length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <FileSearch className="h-12 w-12 text-muted-foreground/30 mb-4" />
+          <div className="h-16 w-16 rounded-full bg-muted/50 flex items-center justify-center mb-4">
+            <FileSearch className="h-8 w-8 text-muted-foreground/30" />
+          </div>
           <h2 className="text-lg font-medium">No reviews in queue</h2>
-          <p className="text-sm text-muted-foreground mt-1">Plan reviews will appear here when projects enter the review stage</p>
+          <p className="text-sm text-muted-foreground mt-1 mb-4">Upload plan documents to start your first AI-powered review</p>
+          <Button onClick={() => setWizardOpen(true)} variant="outline">
+            <Plus className="h-4 w-4 mr-2" /> Start New Review
+          </Button>
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -367,6 +464,7 @@ export default function PlanReview() {
             const findingsCount = Array.isArray(review.ai_findings) ? (review.ai_findings as Finding[]).length : 0;
             const critical = hasCriticalFindings(review);
             const hasFiles = review.file_urls && review.file_urls.length > 0;
+            const daysLeft = getDaysRemaining(review.created_at);
             return (
               <Card
                 key={review.id}
@@ -374,9 +472,9 @@ export default function PlanReview() {
                   "shadow-subtle border cursor-pointer hover:bg-muted/30 transition-colors relative overflow-hidden",
                   critical && "border-l-destructive border-l-2"
                 )}
-                onClick={() => { setSelectedReview(review); setCommentLetter(""); setCopied(false); setActiveTab("overview"); }}
+                onClick={() => { setSelectedReview(review); setCommentLetter(""); setCopied(false); setActiveTab("overview"); setPageImages([]); setActiveFindingIndex(null); }}
               >
-                <CardContent className="p-4 grid grid-cols-1 md:grid-cols-[1fr_100px_120px_80px_100px_80px_24px] gap-2 md:gap-4 items-center">
+                <CardContent className="p-4 grid grid-cols-1 md:grid-cols-[1fr_100px_120px_60px_80px_100px_80px_24px] gap-2 md:gap-4 items-center">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium truncate">{review.project?.name || "Unnamed"}</p>
@@ -387,9 +485,11 @@ export default function PlanReview() {
                   <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-medium capitalize w-fit">{review.project?.trade_type}</span>
                   <div className="flex items-center gap-1">
                     <span className="text-xs font-medium">{getCountyLabel(review.project?.county || "")}</span>
-                    {isHVHZ(review.project?.county || "") && (
-                      <Wind className="h-3 w-3 text-destructive" />
-                    )}
+                    {isHVHZ(review.project?.county || "") && <Wind className="h-3 w-3 text-destructive" />}
+                  </div>
+                  {/* Deadline ring */}
+                  <div className="hidden md:flex items-center justify-center">
+                    <DeadlineRing daysLeft={daysLeft} totalDays={21} size={28} />
                   </div>
                   <Badge variant="secondary" className="text-xs w-fit">R{review.round}</Badge>
                   <Badge
@@ -414,9 +514,9 @@ export default function PlanReview() {
         </div>
       )}
 
-      {/* Review detail panel — wider */}
+      {/* Review detail panel */}
       <Sheet open={!!selectedReview} onOpenChange={(open) => !open && setSelectedReview(null)}>
-        <SheetContent className="w-full sm:max-w-4xl overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-5xl overflow-y-auto">
           <SheetHeader>
             <SheetTitle className="font-[var(--font-display)] text-xl">
               {selectedReview?.project?.name || "Plan Review"}
@@ -427,23 +527,30 @@ export default function PlanReview() {
             <div className="mt-4">
               {/* Project info header */}
               <Card className="shadow-subtle border mb-4">
-                <CardContent className="p-4 space-y-2">
-                  <p className="text-sm text-foreground/80">{selectedReview.project?.address}</p>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-medium capitalize">{selectedReview.project?.trade_type}</span>
-                    <Badge variant="secondary" className="text-xs">Round {selectedReview.round}</Badge>
-                    <Badge variant="outline" className="text-xs font-medium">
-                      {getCountyLabel(county)} County
-                    </Badge>
-                    {selectedReview.project?.jurisdiction && (
-                      <span className="text-[10px] text-muted-foreground">
-                        Jurisdiction: {selectedReview.project.jurisdiction}
-                      </span>
-                    )}
-                    {fileUrls.length > 0 && (
-                      <Badge variant="outline" className="text-[10px] text-accent border-accent/30">
-                        <FileText className="h-3 w-3 mr-1" />{fileUrls.length} doc{fileUrls.length > 1 ? "s" : ""}
-                      </Badge>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-2">
+                      <p className="text-sm text-foreground/80">{selectedReview.project?.address}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-medium capitalize">{selectedReview.project?.trade_type}</span>
+                        <Badge variant="secondary" className="text-xs">Round {selectedReview.round}</Badge>
+                        <Badge variant="outline" className="text-xs font-medium">
+                          {getCountyLabel(county)} County
+                        </Badge>
+                        {selectedReview.project?.jurisdiction && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Jurisdiction: {selectedReview.project.jurisdiction}
+                          </span>
+                        )}
+                        {fileUrls.length > 0 && (
+                          <Badge variant="outline" className="text-[10px] text-accent border-accent/30">
+                            <FileText className="h-3 w-3 mr-1" />{fileUrls.length} doc{fileUrls.length > 1 ? "s" : ""}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    {findings.length > 0 && (
+                      <SeverityDonut critical={criticalCount} major={majorCount} minor={minorCount} />
                     )}
                   </div>
                 </CardContent>
@@ -460,7 +567,7 @@ export default function PlanReview() {
                 </div>
               )}
 
-              {/* Tabbed interface */}
+              {/* Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="w-full grid grid-cols-4 mb-4">
                   <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -481,7 +588,6 @@ export default function PlanReview() {
 
                 {/* === Overview Tab === */}
                 <TabsContent value="overview" className="space-y-4">
-                  {/* AI Pre-Check button */}
                   <Button
                     onClick={() => runAICheck(selectedReview)}
                     disabled={aiRunning}
@@ -494,64 +600,41 @@ export default function PlanReview() {
                     )}
                   </Button>
 
-                  {/* Multi-step scanning animation */}
+                  {/* Scan timeline animation */}
                   {aiRunning && (
-                    <div className="space-y-3 rounded-lg border bg-card p-4">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Scanning disciplines...</span>
-                        <span>{scanStep + 1}/{SCANNING_STEPS.length}</span>
-                      </div>
-                      <Progress value={((scanStep + 1) / SCANNING_STEPS.length) * 100} className="h-1.5" />
-                      <div className="grid grid-cols-3 gap-2">
-                        {SCANNING_STEPS.map((step, i) => {
-                          const Icon = getDisciplineIcon(step.discipline);
-                          const active = i === scanStep;
-                          const done = i < scanStep;
-                          return (
-                            <div
-                              key={step.discipline}
-                              className={cn(
-                                "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[10px] transition-all",
-                                active && "bg-accent/10 text-accent font-medium",
-                                done && "text-[hsl(var(--success))]",
-                                !active && !done && "text-muted-foreground/40"
-                              )}
-                            >
-                              <Icon className={cn("h-3 w-3", active && "animate-pulse")} />
-                              {step.label}
+                    <Card className="shadow-subtle border">
+                      <CardContent className="p-4">
+                        {renderingPages && (
+                          <div className="mb-3 space-y-1.5">
+                            <div className="flex items-center gap-2 text-xs text-accent">
+                              <Eye className="h-3.5 w-3.5 animate-pulse" />
+                              <span>Rendering plan pages for visual analysis...</span>
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                            <Progress value={renderProgress} className="h-1" />
+                          </div>
+                        )}
+                        <ScanTimeline currentStep={scanStep} />
+                      </CardContent>
+                    </Card>
                   )}
 
                   {/* Findings summary */}
                   {findings.length > 0 && (
                     <Card className="shadow-subtle border">
                       <CardContent className="p-4">
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <span className="text-sm font-semibold">{findings.length} Findings</span>
-                          {criticalCount > 0 && (
-                            <Badge className={cn("text-[10px]", severityColors.critical)}>
-                              {criticalCount} Critical
-                            </Badge>
-                          )}
-                          {majorCount > 0 && (
-                            <Badge className={cn("text-[10px]", severityColors.major)}>
-                              {majorCount} Major
-                            </Badge>
-                          )}
-                          {minorCount > 0 && (
-                            <Badge className={cn("text-[10px]", severityColors.minor)}>
-                              {minorCount} Minor
-                            </Badge>
-                          )}
+                        <div className="flex items-center gap-4">
+                          <SeverityDonut critical={criticalCount} major={majorCount} minor={minorCount} size={56} />
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold">{findings.length} Findings</p>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              {criticalCount > 0 && <Badge className={cn("text-[10px]", severityColors.critical)}>{criticalCount} Critical</Badge>}
+                              {majorCount > 0 && <Badge className={cn("text-[10px]", severityColors.major)}>{majorCount} Major</Badge>}
+                              {minorCount > 0 && <Badge className={cn("text-[10px]", severityColors.minor)}>{minorCount} Minor</Badge>}
+                            </div>
+                          </div>
                         </div>
                         <div className="mt-3 flex gap-2">
-                          <Button size="sm" variant="outline" onClick={() => setActiveTab("findings")}>
-                            View Findings →
-                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setActiveTab("findings")}>View Findings →</Button>
                           {!commentLetter && (
                             <Button size="sm" variant="outline" onClick={() => generateCommentLetter(selectedReview)}>
                               <Sparkles className="h-3.5 w-3.5 mr-1" /> Generate Letter
@@ -562,7 +645,7 @@ export default function PlanReview() {
                     </Card>
                   )}
 
-                  {/* Quick document upload */}
+                  {/* Quick upload */}
                   {fileUrls.length === 0 && (
                     <div
                       className="border-2 border-dashed border-border/60 rounded-lg p-6 text-center cursor-pointer hover:bg-muted/20 transition-colors"
@@ -573,79 +656,96 @@ export default function PlanReview() {
                       <Upload className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
                       <p className="text-sm font-medium text-muted-foreground">Upload plan documents</p>
                       <p className="text-xs text-muted-foreground/60 mt-1">Drag & drop PDF files or click to browse</p>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".pdf"
-                        multiple
-                        className="hidden"
-                        onChange={(e) => handleFileUpload(e.target.files)}
-                      />
+                      <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFileUpload(e.target.files)} />
                     </div>
                   )}
                 </TabsContent>
 
-                {/* === Findings Tab === */}
+                {/* === Findings Tab (Split View) === */}
                 <TabsContent value="findings" className="space-y-4">
-                  {/* Findings summary bar */}
-                  {findings.length > 0 && (
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <span className="text-sm font-semibold">{findings.length} Findings</span>
-                      {criticalCount > 0 && (
-                        <Badge className={cn("text-[10px]", severityColors.critical)}>
-                          {criticalCount} Critical
-                        </Badge>
-                      )}
-                      {majorCount > 0 && (
-                        <Badge className={cn("text-[10px]", severityColors.major)}>
-                          {majorCount} Major
-                        </Badge>
-                      )}
-                      {minorCount > 0 && (
-                        <Badge className={cn("text-[10px]", severityColors.minor)}>
-                          {minorCount} Minor
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-
                   {findings.length === 0 && !aiRunning && (
                     <div className="text-center py-12 text-muted-foreground">
-                      <FileSearch className="h-10 w-10 mx-auto mb-3 text-muted-foreground/30" />
-                      <p className="text-sm">No findings yet. Run AI Pre-Check from the Overview tab.</p>
+                      <div className="h-14 w-14 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-3">
+                        <FileSearch className="h-7 w-7 text-muted-foreground/30" />
+                      </div>
+                      <p className="text-sm font-medium">No findings yet</p>
+                      <p className="text-xs text-muted-foreground mt-1">Run AI Pre-Check from the Overview tab to analyze your plans.</p>
                     </div>
                   )}
 
-                  {/* Findings grouped by discipline */}
                   {findings.length > 0 && (
-                    <Accordion type="multiple" defaultValue={DISCIPLINE_ORDER.filter((d) => groupedFindings[d])} className="space-y-1">
-                      {DISCIPLINE_ORDER.filter((d) => groupedFindings[d]).map((discipline) => {
-                        const group = groupedFindings[discipline];
-                        const Icon = getDisciplineIcon(discipline);
-                        const worst = getWorstSeverity(group);
-                        return (
-                          <AccordionItem key={discipline} value={discipline} className="border rounded-lg overflow-hidden">
-                            <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30">
-                              <div className="flex items-center gap-3">
-                                <Icon className={cn("h-4 w-4", getDisciplineColor(discipline))} />
-                                <span className="text-sm font-medium">{getDisciplineLabel(discipline)}</span>
-                                <Badge variant="secondary" className="text-[10px]">{group.length}</Badge>
-                                <div className={cn("h-2 w-2 rounded-full", {
-                                  "bg-destructive": worst === "critical",
-                                  "bg-[hsl(var(--warning))]": worst === "major",
-                                  "bg-muted-foreground/40": worst === "minor",
-                                })} />
-                              </div>
-                            </AccordionTrigger>
-                            <AccordionContent className="px-4 pb-4 space-y-2">
-                              {group.map((finding, i) => (
-                                <FindingCard key={i} finding={finding} index={i} globalIndex={globalIndexMap.get(finding)} />
-                              ))}
-                            </AccordionContent>
-                          </AccordionItem>
-                        );
-                      })}
-                    </Accordion>
+                    <>
+                      {/* Summary bar */}
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="text-sm font-semibold">{findings.length} Findings</span>
+                        {criticalCount > 0 && <Badge className={cn("text-[10px]", severityColors.critical)}>{criticalCount} Critical</Badge>}
+                        {majorCount > 0 && <Badge className={cn("text-[10px]", severityColors.major)}>{majorCount} Major</Badge>}
+                        {minorCount > 0 && <Badge className={cn("text-[10px]", severityColors.minor)}>{minorCount} Minor</Badge>}
+                        {hasMarkup && (
+                          <Badge variant="outline" className="text-[10px] text-accent border-accent/30">
+                            <Eye className="h-3 w-3 mr-1" /> Visual annotations
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Split view: markup viewer + findings */}
+                      <div className={cn("gap-4", hasMarkup && pageImages.length > 0 ? "grid grid-cols-1 lg:grid-cols-[3fr_2fr]" : "")}>
+                        {/* Plan markup viewer */}
+                        {hasMarkup && pageImages.length > 0 && (
+                          <PlanMarkupViewer
+                            pageImages={pageImages}
+                            findings={findings}
+                            activeFindingIndex={activeFindingIndex}
+                            onAnnotationClick={handleAnnotationClick}
+                            className="h-[500px] sticky top-0"
+                          />
+                        )}
+
+                        {/* Finding cards */}
+                        <div className="space-y-1">
+                          <Accordion type="multiple" defaultValue={DISCIPLINE_ORDER.filter((d) => groupedFindings[d])} className="space-y-1">
+                            {DISCIPLINE_ORDER.filter((d) => groupedFindings[d]).map((discipline) => {
+                              const group = groupedFindings[discipline];
+                              const Icon = getDisciplineIcon(discipline);
+                              const worst = getWorstSeverity(group);
+                              return (
+                                <AccordionItem key={discipline} value={discipline} className="border rounded-lg overflow-hidden">
+                                  <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30">
+                                    <div className="flex items-center gap-3">
+                                      <Icon className={cn("h-4 w-4", getDisciplineColor(discipline))} />
+                                      <span className="text-sm font-medium">{getDisciplineLabel(discipline)}</span>
+                                      <Badge variant="secondary" className="text-[10px]">{group.length}</Badge>
+                                      <div className={cn("h-2 w-2 rounded-full", {
+                                        "bg-destructive": worst === "critical",
+                                        "bg-[hsl(var(--warning))]": worst === "major",
+                                        "bg-muted-foreground/40": worst === "minor",
+                                      })} />
+                                    </div>
+                                  </AccordionTrigger>
+                                  <AccordionContent className="px-4 pb-4 space-y-2">
+                                    {group.map((finding, i) => {
+                                      const gi = globalIndexMap.get(finding)!;
+                                      return (
+                                        <FindingCard
+                                          key={i}
+                                          ref={(el) => { if (el) findingRefs.current.set(gi, el); }}
+                                          finding={finding}
+                                          index={i}
+                                          globalIndex={gi}
+                                          isActive={activeFindingIndex === gi}
+                                          onLocateClick={() => handleLocateFinding(gi)}
+                                          animationDelay={i * 60}
+                                        />
+                                      );
+                                    })}
+                                  </AccordionContent>
+                                </AccordionItem>
+                              );
+                            })}
+                          </Accordion>
+                        </div>
+                      </div>
+                    </>
                   )}
                 </TabsContent>
 
@@ -678,17 +778,22 @@ export default function PlanReview() {
                   </div>
 
                   {findings.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-8">
-                      Run AI Pre-Check first to generate findings, then create a comment letter.
-                    </p>
+                    <div className="text-center py-12">
+                      <div className="h-14 w-14 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-3">
+                        <FileText className="h-7 w-7 text-muted-foreground/30" />
+                      </div>
+                      <p className="text-sm font-medium text-muted-foreground">Run AI Pre-Check first</p>
+                      <p className="text-xs text-muted-foreground mt-1">Generate findings to create a comment letter.</p>
+                    </div>
                   )}
 
                   {(commentLetter || generatingLetter) && (
-                    <div className="rounded-lg border-2 border-border bg-card shadow-sm">
-                      <div className="border-b bg-muted/30 px-6 py-3">
+                    <div className="rounded-lg border-2 border-border bg-card shadow-sm overflow-hidden">
+                      <div className="border-b bg-muted/30 px-6 py-3 flex items-center justify-between">
                         <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                           Florida Private Providers — Official Comment Letter
                         </p>
+                        {generatingLetter && <Loader2 className="h-3.5 w-3.5 text-accent animate-spin" />}
                       </div>
                       <Textarea
                         value={commentLetter}
@@ -708,7 +813,6 @@ export default function PlanReview() {
 
                 {/* === Documents Tab === */}
                 <TabsContent value="documents" className="space-y-4">
-                  {/* Upload zone */}
                   <div
                     className={cn(
                       "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:bg-muted/20 transition-colors",
@@ -723,21 +827,11 @@ export default function PlanReview() {
                     ) : (
                       <Upload className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
                     )}
-                    <p className="text-sm font-medium text-muted-foreground">
-                      {uploading ? "Uploading..." : "Upload plan documents"}
-                    </p>
+                    <p className="text-sm font-medium text-muted-foreground">{uploading ? "Uploading..." : "Upload plan documents"}</p>
                     <p className="text-xs text-muted-foreground/60 mt-1">PDF files up to 20MB each</p>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pdf"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => handleFileUpload(e.target.files)}
-                    />
+                    <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFileUpload(e.target.files)} />
                   </div>
 
-                  {/* Uploaded files list */}
                   {fileUrls.length > 0 && (
                     <div className="space-y-2">
                       {fileUrls.map((url, i) => {
@@ -752,12 +846,7 @@ export default function PlanReview() {
                               <Button size="sm" variant="ghost" asChild>
                                 <a href={url} target="_blank" rel="noopener noreferrer">View</a>
                               </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                onClick={() => removeFile(url)}
-                              >
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeFile(url)}>
                                 <X className="h-3.5 w-3.5" />
                               </Button>
                             </CardContent>
@@ -767,7 +856,6 @@ export default function PlanReview() {
                     </div>
                   )}
 
-                  {/* PDF Viewer for first document */}
                   {fileUrls.length > 0 && (
                     <div className="rounded-lg border overflow-hidden">
                       <div className="bg-muted/30 px-4 py-2 border-b">
@@ -775,11 +863,7 @@ export default function PlanReview() {
                           Document Preview — {decodeURIComponent(fileUrls[0].split("/").pop() || "")}
                         </p>
                       </div>
-                      <iframe
-                        src={fileUrls[0]}
-                        className="w-full h-[600px] bg-background"
-                        title="Plan document viewer"
-                      />
+                      <iframe src={fileUrls[0]} className="w-full h-[600px] bg-background" title="Plan document viewer" />
                     </div>
                   )}
                 </TabsContent>
