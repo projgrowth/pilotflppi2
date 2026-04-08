@@ -861,8 +861,9 @@ export default function PlanReviewDetail() {
           </ResizablePanel>
         )}
       </ResizablePanelGroup>
-                <div className="flex-1 flex items-center justify-center">
-                  <div className="text-center space-y-3">
+    </div>
+  );
+}
                     <Loader2 className="h-8 w-8 text-accent mx-auto animate-spin" />
                     <p className="text-sm text-muted-foreground">Loading document...</p>
                     <Progress value={renderProgress} className="h-1 w-48 mx-auto" />
