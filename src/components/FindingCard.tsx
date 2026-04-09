@@ -147,6 +147,15 @@ export const FindingCard = forwardRef<HTMLDivElement, FindingCardProps>(
               <Badge className={cn("text-[9px] uppercase font-semibold border h-4 px-1", sev.badge)}>
                 {finding.severity}
               </Badge>
+              {finding.confidence && (
+                <Badge variant="outline" className={cn("text-[8px] font-medium h-3.5 px-1",
+                  finding.confidence === "verified" ? "border-[hsl(var(--success))]/40 text-[hsl(var(--success))]" :
+                  finding.confidence === "likely" ? "border-accent/40 text-accent" :
+                  "border-muted-foreground/30 text-muted-foreground"
+                )}>
+                  {finding.confidence}
+                </Badge>
+              )}
               {finding.page && (
                 <span className="text-[9px] text-muted-foreground">pg {finding.page}</span>
               )}
