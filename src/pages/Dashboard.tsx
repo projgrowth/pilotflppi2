@@ -11,10 +11,11 @@ import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { useActivityLog, getEventColor } from "@/hooks/useActivityLog";
 import { getStatutoryStatus } from "@/lib/statutory-deadlines";
 import { useQuery } from "@tanstack/react-query";
+import { useRevenueStats } from "@/hooks/useInvoices";
 import { supabase } from "@/integrations/supabase/client";
 import {
   FolderKanban, AlertTriangle, Plus,
-  ChevronRight, Timer, CheckCircle2, Briefcase, Gavel,
+  ChevronRight, Timer, CheckCircle2, Briefcase, Gavel, DollarSign, Receipt, TrendingUp,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useNavigate } from "react-router-dom";
@@ -203,7 +204,7 @@ export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useDashboardStats();
   const { data: projects, isLoading: projectsLoading } = useProjects();
   const { data: activity, isLoading: activityLoading } = useActivityLog(8);
-
+  const { data: revenueStats } = useRevenueStats();
   const { data: overdueProjects } = useQuery({
     queryKey: ["overdue-projects"],
     queryFn: async () => {
@@ -249,12 +250,36 @@ export default function Dashboard() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <KpiCard label="Active" value={stats?.activeProjects ?? 0} icon={Briefcase} loading={statsLoading} onClick={() => navigate("/projects")} />
         <KpiCard label="Due This Week" value={stats?.criticalDeadlines ?? 0} icon={AlertTriangle} destructive={(stats?.criticalDeadlines ?? 0) > 0} loading={statsLoading} />
         <KpiCard label="Statutory Due" value={stats?.statutoryDue ?? 0} icon={Gavel} destructive={(stats?.statutoryDue ?? 0) > 0} loading={statsLoading} />
-        <KpiCard label="Completed MTD" value={stats?.completedMTD ?? 0} icon={CheckCircle2} accent loading={statsLoading} />
         <KpiCard label="Avg Review" value={stats?.avgReviewTime ?? "0d"} icon={Timer} loading={statsLoading} />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+        <KpiCard
+          label="Revenue MTD"
+          value={`$${(revenueStats?.revenueMTD ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
+          icon={DollarSign}
+          accent
+          loading={!revenueStats}
+          onClick={() => navigate("/invoices")}
+        />
+        <KpiCard
+          label="Outstanding"
+          value={`$${(revenueStats?.outstanding ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
+          icon={Receipt}
+          loading={!revenueStats}
+          onClick={() => navigate("/invoices")}
+        />
+        <KpiCard
+          label="Overdue"
+          value={`$${(revenueStats?.overdue ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
+          icon={TrendingUp}
+          destructive={(revenueStats?.overdueCount ?? 0) > 0}
+          loading={!revenueStats}
+          onClick={() => navigate("/invoices")}
+        />
       </div>
 
       {/* Quick Actions */}
