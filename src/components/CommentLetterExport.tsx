@@ -217,10 +217,12 @@ function buildLetterHTML(props: CommentLetterExportProps): string {
 </head><body>
 
 <div class="letterhead">
-  <h1>FLORIDA PRIVATE PROVIDERS</h1>
+  <h1>${firm.firm_name || "FLORIDA PRIVATE PROVIDERS"}</h1>
   <p>LICENSED PRIVATE PROVIDER FIRM</p>
-  <p class="license">License # PVP-XXXXX | F.S. 553.791</p>
+  <p class="license">License # ${firm.license_number || "PVP-XXXXX"} | F.S. 553.791</p>
   <p>Plan Review &bull; Inspections &bull; Code Compliance</p>
+  ${firm.address ? `<p style="font-size:7.5pt;color:#718096;margin-top:2px">${firm.address}</p>` : ""}
+  ${firm.phone || firm.email ? `<p style="font-size:7.5pt;color:#718096">${[firm.phone, firm.email].filter(Boolean).join(" | ")}</p>` : ""}
 </div>
 
 ${config.buildingDepartment.address ? `
