@@ -129,6 +129,20 @@ export default function Dashboard() {
   const { data: projects, isLoading: projectsLoading } = useProjects();
   const { data: activity, isLoading: activityLoading } = useActivityLog(8);
 
+  // Overdue projects query
+  const { data: overdueProjects } = useQuery({
+    queryKey: ["overdue-projects"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("projects")
+        .select("id, name, deadline_at")
+        .lt("deadline_at", new Date().toISOString())
+        .not("status", "in", '("certificate_issued","cancelled","on_hold")');
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
