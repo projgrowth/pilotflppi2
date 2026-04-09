@@ -1,47 +1,64 @@
 
 
-# AI-Powered Zoning Auto-Fill from Site Plans
+# Fix Document Linking & PDF Generation
 
-## Overview
+## Problems Identified
 
-Add a file upload button to the Zoning tab that lets users upload a site plan image/PDF. The AI (Gemini vision) analyzes it and extracts zoning data (lot area, setbacks, zoning district, building footprint, stories, etc.), pre-filling the form fields.
+1. **Broken plan review file downloads**: The `plan_review_files` table stores full URLs (e.g., `https://...supabase.co/storage/v1/object/public/documents/plan-reviews/...`) in `file_path`, but `handleDownloadDoc` passes this full URL to `supabase.storage.from("documents").download()`, which prepends the bucket path again, causing a 400 error (visible in network logs).
 
-## Changes
+2. **No actual PDF generation**: Comment Letters, Product Checklists, and Inspection Readiness Packets are all generated as HTML files (`.html`), not PDFs. Building officials expect PDF documents.
 
-### 1. New AI action: `extract_zoning_data` (edge function)
+3. **Document list doesn't refresh after generation**: When a Comment Letter or Checklist is saved to storage via `persistToStorage`, the project documents query isn't invalidated, so the new file doesn't appear in the Documents tab until page refresh.
 
-Add to `supabase/functions/ai/index.ts`:
-- New system prompt instructing Gemini to extract all `ZoningData` fields from a site plan image (lot area, footprint, setbacks, zoning district, occupancy groups, parking, etc.)
-- New tool schema matching the `ZoningData` interface for structured extraction
-- Register it as a multimodal action so it uses vision with `gemini-2.5-pro`
+4. **Plan review navigation is generic**: Clicking a plan review in ProjectDetail navigates to `/plan-review` (the list page), not to the specific review at `/plan-review/:id`.
 
-### 2. Update `ZoningAnalysisPanel.tsx`
+## Plan
 
-Add an "AI Auto-Fill" section at the top of the form card:
-- File input accepting images (PNG/JPG) and PDFs
-- For PDFs: convert first page to image using pdfjs-dist (already in the project) before sending
-- Upload button with loading state ("Analyzing site plan...")
-- On success: merge extracted values into the form state (only overwrite fields that the AI returned non-null values for)
-- Toast showing how many fields were extracted
-- Visual indicator showing which fields were AI-populated vs manually entered
+### 1. Fix plan review file path handling
+In `ProjectDetail.tsx`, update `handleDownloadDoc` to detect when `storagePath` is a full URL. If so, extract just the relative path (everything after `/object/public/documents/` or `/object/documents/`), or use a signed URL approach since the bucket is private.
 
-### 3. File flow
+Also fix the plan review file listing — strip the full URL prefix to get the relative storage path.
 
-```text
-User uploads site plan image/PDF
-  → (If PDF, render page 1 to canvas → base64)
-  → Call supabase.functions.invoke("ai", { action: "extract_zoning_data", payload: { images: [base64] } })
-  → Parse structured response
-  → Merge into ZoningData state
-  → Compliance checks auto-recalculate
-```
+### 2. Add real PDF generation using browser print-to-PDF
+Update `CommentLetterExport` and `CountyDocumentPackage` to:
+- Keep the HTML generation as-is (it's well-structured)
+- Change download buttons to trigger `window.print()` via the hidden iframe approach (already exists for print) but with a "Save as PDF" instruction, OR
+- Use a proper client-side HTML-to-PDF approach using the existing iframe + `print()` pattern but saving the file as `.pdf` via the browser's print dialog
 
-## Files Modified
+Since true client-side PDF generation without a library is limited, the pragmatic fix is:
+- Rename outputs from `.html` to indicate they're print-ready
+- Add a "Save as PDF" button that opens the print dialog (users select "Save as PDF" in their browser)
+- Persist the HTML to storage for later reference
+
+### 3. Invalidate document queries after generation
+After `persistToStorage` succeeds, invalidate `["project-documents", projectId]` so the Documents tab updates immediately.
+
+### 4. Fix plan review navigation
+Update the plan review click handler in `ProjectDetail.tsx` to navigate to `/plan-review/${r.id}` instead of `/plan-review`.
+
+## Files Changed
 
 | File | Change |
 |------|--------|
-| `supabase/functions/ai/index.ts` | Add `extract_zoning_data` prompt, tool schema, register as multimodal |
-| `src/components/ZoningAnalysisPanel.tsx` | Add file upload UI, AI extraction handler, merge logic |
+| `src/pages/ProjectDetail.tsx` | Fix file path extraction for plan review files; fix plan review navigation to specific review ID; invalidate queries after upload |
+| `src/components/CommentLetterExport.tsx` | Add query invalidation after persist; ensure print/save-as-PDF flow works properly |
+| `src/components/CountyDocumentPackage.tsx` | Add query invalidation after persist |
 
-No database changes needed — zoning data is already stored as JSONB.
+## Technical Details
+
+The core download fix in `ProjectDetail.tsx`:
+```typescript
+// Extract relative path from full URL if needed
+function getRelativeStoragePath(filePath: string): string {
+  const publicPrefix = "/storage/v1/object/public/documents/";
+  const authPrefix = "/storage/v1/object/documents/";
+  const idx = filePath.indexOf(publicPrefix);
+  if (idx !== -1) return filePath.substring(idx + publicPrefix.length);
+  const idx2 = filePath.indexOf(authPrefix);
+  if (idx2 !== -1) return filePath.substring(idx2 + authPrefix.length);
+  return filePath;
+}
+```
+
+For plan review files, since the bucket is private, use `createSignedUrl` instead of `download` with the public path.
 
