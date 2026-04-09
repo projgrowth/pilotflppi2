@@ -1,11 +1,10 @@
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useProject, getDaysElapsed, getDaysRemaining } from "@/hooks/useProjects";
 import { useProjectActivityLog, getEventColor } from "@/hooks/useActivityLog";
 import { usePlanReviewFilesByProject } from "@/hooks/usePlanReviewFiles";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 
-/** Extract the relative storage path from a full Supabase URL or return as-is */
 function getRelativeStoragePath(filePath: string): string {
   const markers = [
     "/storage/v1/object/public/documents/",
@@ -17,6 +16,7 @@ function getRelativeStoragePath(filePath: string): string {
   }
   return filePath;
 }
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusChip } from "@/components/StatusChip";
@@ -25,10 +25,14 @@ import { HorizontalStepper } from "@/components/HorizontalStepper";
 import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { FileText, ClipboardCheck, Activity, Upload, Loader2, Download, Building2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FileText, ClipboardCheck, Activity, Upload, Loader2, Download, Building2, Pencil, CalendarPlus } from "lucide-react";
 import { ZoningAnalysisPanel } from "@/components/ZoningAnalysisPanel";
 import { ZoningData } from "@/lib/zoning-utils";
 import { StatutoryClockCard } from "@/components/StatutoryClockCard";
+import { EditProjectDialog } from "@/components/EditProjectDialog";
+import { ScheduleInspectionDialog } from "@/components/ScheduleInspectionDialog";
+import { NewPlanReviewWizard } from "@/components/NewPlanReviewWizard";
 import { format, formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -47,6 +51,12 @@ const timelineSteps = [
 
 const statusOrder: Record<string, number> = {};
 timelineSteps.forEach((s, i) => { statusOrder[s.key] = i; });
+
+const ALL_STATUSES = [
+  "intake", "plan_review", "comments_sent", "resubmitted", "approved",
+  "permit_issued", "inspection_scheduled", "inspection_complete",
+  "certificate_issued", "on_hold", "cancelled",
+];
 
 function formatServiceName(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -93,6 +103,10 @@ export default function ProjectDetail() {
   const { data: reviews } = useProjectReviews(id || "");
   const [uploading, setUploading] = useState(false);
   const [docFilter, setDocFilter] = useState<string>("all");
+  const [editOpen, setEditOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [statusUpdating, setStatusUpdating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const DOC_CATEGORIES = [
@@ -115,7 +129,6 @@ export default function ProjectDetail() {
     return "other";
   }
 
-  // Merge storage documents + plan review files into a unified list
   const allDocuments = (() => {
     const items: { key: string; name: string; date: string; source: string; storagePath?: string; category: string }[] = [];
     for (const doc of documents || []) {
@@ -132,7 +145,6 @@ export default function ProjectDetail() {
   })();
 
   const handleDownloadDoc = async (storagePath: string, displayName: string) => {
-    // Use signed URL since the documents bucket is private
     const { data: signedData, error: signError } = await supabase.storage
       .from("documents")
       .createSignedUrl(storagePath, 3600);
@@ -164,6 +176,35 @@ export default function ProjectDetail() {
     setUploading(false);
   };
 
+  const handleStatusChange = async (newStatus: string) => {
+    if (!project || newStatus === project.status) return;
+    setStatusUpdating(true);
+    try {
+      const { error } = await supabase
+        .from("projects")
+        .update({ status: newStatus as any })
+        .eq("id", project.id);
+      if (error) throw error;
+
+      // Log the manual status change
+      await supabase.from("activity_log").insert({
+        event_type: "status_manual_override",
+        description: `Status manually changed from ${project.status} to ${newStatus}`,
+        project_id: project.id,
+        actor_id: (await supabase.auth.getUser()).data.user?.id,
+        actor_type: "user",
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["project", project.id] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      toast.success(`Status updated to ${newStatus.replace(/_/g, " ")}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update status");
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="p-6 md:p-8 max-w-6xl space-y-6">
@@ -190,30 +231,35 @@ export default function ProjectDetail() {
   const currentStepIndex = statusOrder[project.status] ?? 0;
   const findingsCount = (reviews || []).reduce((sum, r) => sum + (Array.isArray(r.ai_findings) ? (r.ai_findings as unknown[]).length : 0), 0);
 
-  // Build detail rows, filtering out empty values
   const detailRows = [
     project.county && ["County", project.county],
     project.jurisdiction && ["Jurisdiction", project.jurisdiction],
     ["Trade", formatServiceName(project.trade_type)],
-    project.contractor?.name && ["Contractor", project.contractor.name],
+    project.contractor?.name && ["Contractor", project.contractor.name, `/contractors`],
+    project.assigned_to && ["Assigned To", project.assigned_to],
     project.notice_filed_at && ["Notice Filed", format(new Date(project.notice_filed_at), "MMM d, yyyy")],
     project.deadline_at && ["Deadline", format(new Date(project.deadline_at), "MMM d, yyyy")],
     (project.services || []).length > 0 && ["Services", project.services.map(formatServiceName).join(", ")],
-  ].filter(Boolean) as [string, string][];
+  ].filter(Boolean) as [string, string, string?][];
 
   return (
     <div className="p-6 md:p-8 max-w-6xl">
-      {/* Header with breadcrumbs + inline actions */}
       <PageHeader
         title={project.name}
         subtitle={project.address}
         breadcrumbs={[
-          { label: "Dashboard", href: "/" },
+          { label: "Dashboard", href: "/dashboard" },
           { label: "Projects", href: "/projects" },
           { label: project.name },
         ]}
         actions={
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => setEditOpen(true)}>
+              <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+            </Button>
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => setScheduleOpen(true)}>
+              <CalendarPlus className="h-3.5 w-3.5 mr-1" /> Inspect
+            </Button>
             <Button variant="outline" size="sm" className="text-xs" onClick={() => fileInputRef.current?.click()}>
               <Upload className="h-3.5 w-3.5 mr-1" /> Upload
             </Button>
@@ -229,47 +275,72 @@ export default function ProjectDetail() {
               <Button
                 size="sm"
                 className="text-xs bg-accent text-accent-foreground hover:bg-accent/90"
-                onClick={() => navigate("/plan-review")}
+                onClick={() => setWizardOpen(true)}
               >
-                <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Review
+                <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> New Review
               </Button>
             )}
-            <StatusChip status={project.status} />
           </div>
         }
       />
 
-      {/* Horizontal stepper — full width */}
-      <Card className="shadow-subtle border mb-6">
+      {/* Dialogs */}
+      <EditProjectDialog open={editOpen} onOpenChange={setEditOpen} project={project} />
+      <ScheduleInspectionDialog open={scheduleOpen} onOpenChange={setScheduleOpen} projectId={project.id} />
+      <NewPlanReviewWizard open={wizardOpen} onOpenChange={setWizardOpen} onComplete={(reviewId) => navigate(`/plan-review/${reviewId}`)} preselectedProjectId={project.id} />
+
+      {/* Horizontal stepper */}
+      <Card className="shadow-subtle mb-6">
         <CardContent className="px-6 py-5">
           <HorizontalStepper steps={timelineSteps} currentStepIndex={currentStepIndex} />
         </CardContent>
       </Card>
 
-      {/* Two-column: details + tabs */}
+      {/* Two-column */}
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-        {/* Left: Status & Details combined */}
         <div className="space-y-4">
+          {/* Status override */}
+          <Card className="shadow-subtle">
+            <CardContent className="p-5">
+              <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Status</h3>
+              <Select value={project.status} onValueChange={handleStatusChange} disabled={statusUpdating}>
+                <SelectTrigger className="text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ALL_STATUSES.map((s) => (
+                    <SelectItem key={s} value={s} className="capitalize text-sm">
+                      {s.replace(/_/g, " ")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+
           {/* Deadline bar */}
-          <Card className="shadow-subtle border">
+          <Card className="shadow-subtle">
             <CardContent className="p-5">
               <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Deadline</h3>
               <DeadlineBar daysElapsed={daysElapsed} />
             </CardContent>
           </Card>
 
-          {/* Statutory Clock (F.S. 553.791) */}
           <StatutoryClockCard project={project} />
 
           {/* Details */}
-          <Card className="shadow-subtle border">
+          <Card className="shadow-subtle">
             <CardContent className="p-5">
               <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Details</h3>
               <div className="space-y-0">
-                {detailRows.map(([label, value]) => (
+                {detailRows.map(([label, value, link]) => (
                   <div key={label} className="flex justify-between text-sm py-2 border-b border-border/50 last:border-0 hover:bg-muted/30 -mx-2 px-2 rounded transition-colors">
                     <span className="text-muted-foreground">{label}</span>
-                    <span className="font-medium text-right">{value}</span>
+                    {link ? (
+                      <Link to={link} className="font-medium text-right text-accent hover:underline">{value}</Link>
+                    ) : (
+                      <span className="font-medium text-right">{value}</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -300,7 +371,7 @@ export default function ProjectDetail() {
             </TabsList>
 
             <TabsContent value="activity">
-              <Card className="shadow-subtle border">
+              <Card className="shadow-subtle">
                 <CardContent className="p-0 divide-y">
                   {activityLoading ? (
                     Array.from({ length: 3 }).map((_, i) => (
@@ -332,7 +403,7 @@ export default function ProjectDetail() {
             </TabsContent>
 
             <TabsContent value="documents">
-              <Card className="shadow-subtle border">
+              <Card className="shadow-subtle">
                 <CardContent className="p-4 space-y-3">
                   <div
                     className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-muted/20 transition-colors"
@@ -347,7 +418,6 @@ export default function ProjectDetail() {
                     <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => handleUpload(e.target.files)} />
                   </div>
 
-                  {/* Category filter chips */}
                   {allDocuments.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
                       {DOC_CATEGORIES.map((cat) => {
@@ -405,7 +475,7 @@ export default function ProjectDetail() {
             </TabsContent>
 
             <TabsContent value="plan-review">
-              <Card className="shadow-subtle border">
+              <Card className="shadow-subtle">
                 <CardContent className="p-4">
                   {(reviews || []).length === 0 ? (
                     <div className="text-center py-8">
@@ -414,9 +484,9 @@ export default function ProjectDetail() {
                       <Button
                         className="mt-3 bg-accent text-accent-foreground hover:bg-accent/90"
                         size="sm"
-                        onClick={() => navigate("/plan-review")}
+                        onClick={() => setWizardOpen(true)}
                       >
-                        Go to Plan Review
+                        Start New Review
                       </Button>
                     </div>
                   ) : (
