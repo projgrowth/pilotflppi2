@@ -1,62 +1,87 @@
 
 
-# Add Zoning & Commercial Project Capabilities
+# Site Plan Completeness & Missing Information Detection
 
-## What exists today
+## Problem
 
-Your platform already handles plan visualization well — PDFs are rendered as zoomable/pannable images with AI-placed annotations linked to findings. The AI uses Gemini vision to analyze actual plan sheets and flag FBC 2023 violations across 9 disciplines. County-specific rules (HVHZ, wind loads, product approvals) are already wired in.
+Building officials reject submittals when required information is missing from plans — not just code violations. The current system finds code compliance issues but doesn't systematically verify that all required plan sheet content, notes, details, and site plan elements are present. A building official will reject a package outright if the site plan is missing a drainage plan, or if there's no survey, or if required notes are absent.
 
-## What's missing for large commercial projects
+## Solution
 
-### 1. Zoning & Lot Allowance Module (new feature)
+Add two new capabilities:
 
-A dedicated "Zoning" tab in the project workspace where users input or the AI extracts:
+### 1. Site Plan Completeness Checklist (new component)
 
-| Field | Example (Porsche Dealership) |
-|-------|------------------------------|
-| Zoning district | C-2 (General Commercial) |
-| Lot area | ~2.5 acres |
-| Building footprint | 70,000 sqft |
-| FAR (Floor Area Ratio) | Max 0.5 → allows 54,450 sqft on 2.5ac |
-| Lot coverage | Max 60% |
-| Setbacks | Front 25', Side 10', Rear 15' |
-| Max height | 45' / 3 stories |
-| Parking required | 1 per 200 sqft showroom, 1 per 400 sqft service |
-| Landscape buffer | 15' along ROW |
-| Signage allowance | 1 sqft per LF of frontage |
+A comprehensive "Plan Completeness" panel in the review workspace that checks whether required elements exist on the plans. This covers what building officials look for before they even start a code review:
 
-This would calculate compliance automatically (e.g., "70K sqft exceeds FAR on this lot — needs variance") and flag issues before plan review begins.
+**Site Plan Required Elements:**
+- Legal description and survey data
+- Property boundaries with dimensions
+- Setback lines shown and dimensioned
+- Existing/proposed structures with distances to property lines
+- Parking layout with ADA spaces, counts, and dimensions
+- Driveway locations and sight triangles
+- Stormwater/drainage plan or reference
+- Utility connections (water, sewer, electric)
+- Easements and right-of-way lines
+- Tree survey / landscape plan (if required)
+- Flood zone designation and BFE (if applicable)
+- CCCL line (if coastal)
+- Trash enclosure location
+- Fire department access and hydrant locations
 
-### 2. Commercial Occupancy Classification
+**General Plan Completeness:**
+- Title block complete (project name, address, architect/engineer, seal, date)
+- Index of drawings
+- Code summary table (occupancy, construction type, area, height, sprinkler)
+- Life safety plan (exit paths, occupant loads, exit widths)
+- Structural notes (design loads, wind speed, exposure category)
+- Energy compliance form (Res: Form 402 or ComCheck, Comm: COMcheck)
+- Product approval numbers on specs (NOA/FL#)
+- Threshold building designation (if >3 stories or >50ft or >5000sqft per floor)
+- Special inspector requirements noted
+- FBC edition stated on plans
 
-Add occupancy-aware logic to the AI review system:
-- Auto-detect occupancy groups (B for offices, S-1 for service bays, M for showroom, F-1 for paint booth)
-- Flag mixed-occupancy fire separation requirements (FBC Table 508.4)
-- High-piled storage requirements for parts warehouses
-- Auto repair bay ventilation (IMC 502.16) and flammable liquid storage
+### 2. Enhanced AI Prompt for Missing Information Detection
 
-### 3. Enhanced AI Prompt for Commercial Scale
+Update the AI review prompts to explicitly look for **missing information** — not just code violations. Add a `"missing_info"` category to findings so the system flags sheets that are entirely absent or elements that should appear but don't.
 
-Extend the edge function's system prompt with commercial-specific instructions covering:
-- Multi-occupancy separation analysis
-- Parking & accessibility calculations (ADA van spaces per lot size)
-- Means of egress for large floor plates (travel distance, exit capacity)
-- Fire sprinkler/alarm thresholds based on building area and occupancy
-
-## Files changed
+## Files Changed
 
 | File | Change |
 |------|--------|
-| `src/components/ZoningAnalysisPanel.tsx` | **New** — Zoning input form + compliance calculator |
-| `src/pages/ProjectDetail.tsx` | Add "Zoning" tab rendering ZoningAnalysisPanel |
-| `supabase/functions/ai/index.ts` | Add `zoning_analysis` action + commercial-enhanced prompts |
-| `src/lib/zoning-utils.ts` | **New** — FAR/coverage/parking/setback calculation helpers |
-| Migration | Add `zoning_data` JSONB column to `projects` table |
+| `src/components/SitePlanChecklist.tsx` | **New** — Comprehensive completeness checklist with auto-detection from AI findings |
+| `src/pages/PlanReviewDetail.tsx` | Add "Completeness" as a new right-panel mode |
+| `supabase/functions/ai/index.ts` | Add missing-info detection instructions to both plan review prompts |
+| `src/components/DisciplineChecklist.tsx` | Expand site discipline items to cover drainage, utilities, landscape, fire access |
+| `src/lib/county-utils.ts` | Add `SITE_PLAN_REQUIRED_ELEMENTS` constant for reuse |
 
-## Implementation approach
+## AI Prompt Enhancement
 
-- The zoning panel lets users manually enter district parameters OR paste a zoning code designation, then the AI looks up typical requirements for that district.
-- Calculations run client-side for instant feedback (FAR, coverage %, parking count).
-- The AI review prompt gets a commercial addendum so it checks occupancy separation, high-piled storage, and auto repair bay code sections when the project trade type or square footage indicates commercial scale.
-- No changes to the existing plan viewer — it already handles multi-page visualization and annotation.
+The AI prompts will be updated to include instructions like:
+
+> **MISSING INFORMATION CHECK (Critical for Private Providers):**
+> Beyond code violations, flag any of the following that are MISSING from the plans:
+> - No site plan sheet at all
+> - Site plan missing property boundaries, setbacks, or parking layout
+> - No code summary table (occupancy, construction type, allowable area)
+> - No life safety / egress plan
+> - No structural design criteria (wind speed, exposure, soil bearing)
+> - No energy compliance documentation
+> - Missing sealed drawings or engineer of record
+> - No product approval references on specifications
+> - No flood zone or wind speed designation
+>
+> Use severity "critical" for missing sheets/information that would cause immediate rejection by a building official. Use "major" for incomplete information that needs supplementation.
+
+## Completeness Panel Behavior
+
+- Each item shows a checkbox with three states: Present / Missing / N/A
+- AI findings auto-populate "Missing" status when the AI flags missing info
+- Reviewer can manually mark items
+- A completion percentage bar shows overall readiness
+- Items marked "Missing" generate a summary that can be exported as a deficiency notice to the applicant
+- County-specific items (CCCL, HVHZ NOA list, threshold building) conditionally appear based on project county
+
+This ensures your review package is airtight before a building official ever sees it.
 
