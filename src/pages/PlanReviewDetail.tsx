@@ -926,6 +926,7 @@ export default function PlanReviewDetail() {
                       <div className="flex items-center gap-1.5">
                         {hasFindings && review.qc_status === "qc_approved" && (
                           <CountyDocumentPackage
+                            projectId={review.project_id}
                             projectName={review.project?.name || ""}
                             address={review.project?.address || ""}
                             county={county}
