@@ -1,3 +1,4 @@
+import { useState, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,16 +9,17 @@ import { KpiCard } from "@/components/KpiCard";
 import { useProjects, getDaysElapsed } from "@/hooks/useProjects";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { useActivityLog, getEventColor } from "@/hooks/useActivityLog";
+import { getStatutoryStatus } from "@/lib/statutory-deadlines";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   FolderKanban, AlertTriangle, Plus,
-  Sparkles, ChevronRight, Timer, CheckCircle2, Briefcase, Gavel,
+  ChevronRight, Timer, CheckCircle2, Briefcase, Gavel,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useNavigate } from "react-router-dom";
-import { useMemo } from "react";
 import { QcPendingWidget } from "@/components/QcPendingWidget";
+import { cn } from "@/lib/utils";
 
 /* ── Unified project list ── */
 
@@ -39,7 +41,6 @@ function ProjectTable({ projects, navigate }: { projects: any[]; navigate: (path
 
   return (
     <Card className="shadow-subtle">
-      {/* Header row */}
       <div className="grid grid-cols-[1fr_120px_100px_32px] gap-2 px-5 py-3 border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
         <span>Project</span>
         <span>Status</span>
@@ -76,7 +77,81 @@ function ProjectTable({ projects, navigate }: { projects: any[]; navigate: (path
   );
 }
 
-/* ── Activity feed with project links ── */
+/* ── Deadlines section (merged from Deadlines page) ── */
+
+function DeadlinesSection({ projects, navigate }: { projects: any[]; navigate: (path: string) => void }) {
+  const deadlineProjects = useMemo(() =>
+    (projects || [])
+      .filter((p) => p.deadline_at && !["certificate_issued", "cancelled"].includes(p.status))
+      .map((p) => {
+        const stat = getStatutoryStatus(p);
+        const daysElapsed = getDaysElapsed(p.notice_filed_at);
+        const remaining = Math.max(0, 21 - daysElapsed);
+        return { ...p, daysElapsed, remaining, statutory: stat };
+      })
+      .sort((a, b) => a.remaining - b.remaining)
+      .slice(0, 6),
+    [projects]
+  );
+
+  if (deadlineProjects.length === 0) return null;
+
+  return (
+    <Card className="shadow-subtle">
+      <div className="px-5 py-3 border-b flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Upcoming Deadlines</span>
+      </div>
+      <div className="divide-y">
+        {deadlineProjects.map((d) => {
+          const progress = Math.min(d.daysElapsed / 21, 1);
+          const barColor = d.remaining <= 0 ? "bg-destructive" : d.remaining <= 3 ? "bg-destructive" : d.remaining <= 6 ? "bg-warning" : "bg-success";
+          const isOverdue = d.remaining <= 0;
+          const showStatutory = d.statutory.phase === "review" || d.statutory.phase === "inspection";
+          const statRemaining = d.statutory.phase === "review" ? d.statutory.reviewDaysRemaining : d.statutory.inspectionDaysRemaining;
+          const statTotal = d.statutory.phase === "review" ? d.statutory.reviewDaysTotal : d.statutory.inspectionDaysTotal;
+          const statUsed = d.statutory.phase === "review" ? d.statutory.reviewDaysUsed : d.statutory.inspectionDaysUsed;
+          const statProgress = statTotal > 0 ? Math.min(statUsed / statTotal, 1) : 0;
+          const statBarColor = statRemaining <= 3 ? "bg-destructive" : statRemaining <= 5 ? "bg-warning" : "bg-accent";
+
+          return (
+            <div
+              key={d.id}
+              onClick={() => navigate(`/projects/${d.id}`)}
+              className={cn("flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-muted/30 transition-colors", isOverdue && "bg-destructive/5")}
+            >
+              <div className="w-36 shrink-0">
+                <p className="text-sm font-medium truncate">{d.name}</p>
+                <p className="text-xs text-muted-foreground truncate mt-0.5">{d.address}</p>
+              </div>
+              <div className="flex-1 space-y-1.5">
+                <div className="h-2.5 rounded-full bg-muted overflow-hidden">
+                  <div className={cn("h-full rounded-full transition-all", barColor)} style={{ width: `${progress * 100}%` }} />
+                </div>
+                {showStatutory && (
+                  <div className="flex items-center gap-2">
+                    <Gavel className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
+                    <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div className={cn("h-full rounded-full transition-all", statBarColor)} style={{ width: `${statProgress * 100}%` }} />
+                    </div>
+                    <span className="text-[9px] font-mono text-muted-foreground w-10 text-right">{statRemaining}B</span>
+                  </div>
+                )}
+              </div>
+              <span className={cn(
+                "font-mono text-xs font-medium w-16 text-right",
+                isOverdue ? "text-destructive" : d.remaining <= 3 ? "text-destructive" : d.remaining <= 6 ? "text-warning" : "text-success"
+              )}>
+                {isOverdue ? "OVERDUE" : `${d.remaining}d`}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+/* ── Activity feed ── */
 
 function CompactActivityFeed({ activity, loading, navigate }: { activity: any[]; loading: boolean; navigate: (path: string) => void }) {
   if (loading) {
@@ -129,7 +204,6 @@ export default function Dashboard() {
   const { data: projects, isLoading: projectsLoading } = useProjects();
   const { data: activity, isLoading: activityLoading } = useActivityLog(8);
 
-  // Overdue projects query
   const { data: overdueProjects } = useQuery({
     queryKey: ["overdue-projects"],
     queryFn: async () => {
@@ -163,13 +237,10 @@ export default function Dashboard() {
               {overdueProjects.length > 3 ? ` +${overdueProjects.length - 3} more` : ""}
             </p>
           </div>
-          <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={() => navigate("/deadlines")}>
-            View
-          </Button>
         </div>
       )}
 
-      {/* Compact header: greeting + date on one line */}
+      {/* Greeting */}
       <div className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           {greeting}, {displayName}.
@@ -179,56 +250,17 @@ export default function Dashboard() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-        <KpiCard
-          label="Active"
-          value={stats?.activeProjects ?? 0}
-          icon={Briefcase}
-          loading={statsLoading}
-          onClick={() => navigate("/projects")}
-        />
-        <KpiCard
-          label="Due This Week"
-          value={stats?.criticalDeadlines ?? 0}
-          icon={AlertTriangle}
-          destructive={(stats?.criticalDeadlines ?? 0) > 0}
-          loading={statsLoading}
-          onClick={() => navigate("/deadlines")}
-        />
-        <KpiCard
-          label="Statutory Due"
-          value={stats?.statutoryDue ?? 0}
-          icon={Gavel}
-          destructive={(stats?.statutoryDue ?? 0) > 0}
-          loading={statsLoading}
-          onClick={() => navigate("/deadlines?filter=Statutory")}
-        />
-        <KpiCard
-          label="Completed MTD"
-          value={stats?.completedMTD ?? 0}
-          icon={CheckCircle2}
-          accent
-          loading={statsLoading}
-        />
-        <KpiCard
-          label="Avg Review"
-          value={stats?.avgReviewTime ?? "0d"}
-          icon={Timer}
-          loading={statsLoading}
-        />
+        <KpiCard label="Active" value={stats?.activeProjects ?? 0} icon={Briefcase} loading={statsLoading} onClick={() => navigate("/projects")} />
+        <KpiCard label="Due This Week" value={stats?.criticalDeadlines ?? 0} icon={AlertTriangle} destructive={(stats?.criticalDeadlines ?? 0) > 0} loading={statsLoading} />
+        <KpiCard label="Statutory Due" value={stats?.statutoryDue ?? 0} icon={Gavel} destructive={(stats?.statutoryDue ?? 0) > 0} loading={statsLoading} />
+        <KpiCard label="Completed MTD" value={stats?.completedMTD ?? 0} icon={CheckCircle2} accent loading={statsLoading} />
+        <KpiCard label="Avg Review" value={stats?.avgReviewTime ?? "0d"} icon={Timer} loading={statsLoading} />
       </div>
 
       {/* Quick Actions */}
       <div className="mb-8 flex flex-wrap items-center gap-3">
-        <Button
-          onClick={() => navigate("/projects?action=new")}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          New Intake
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => navigate("/plan-review")}>
-          <Sparkles className="h-4 w-4 mr-1.5" />
-          Run AI Check
+        <Button onClick={() => navigate("/projects?action=new")} className="bg-primary text-primary-foreground hover:bg-primary/90">
+          <Plus className="h-4 w-4 mr-2" /> New Intake
         </Button>
       </div>
 
@@ -239,37 +271,47 @@ export default function Dashboard() {
 
       {/* Two-column: project table + activity sidebar */}
       <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
-        <div>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">All Active Projects</h2>
-            <Button variant="ghost" size="sm" className="text-xs text-accent" onClick={() => navigate("/projects")}>
-              View all →
-            </Button>
-          </div>
-          {projectsLoading ? (
-            <Card className="shadow-subtle">
-              <div className="divide-y">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-4 px-5 py-4">
-                    <div className="h-8 w-8 rounded-full bg-muted animate-pulse" />
-                    <div className="flex-1 space-y-2">
-                      <div className="h-4 w-40 rounded bg-muted animate-pulse" />
-                      <div className="h-3 w-56 rounded bg-muted animate-pulse" />
+        <div className="space-y-8">
+          <div>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Active Projects</h2>
+              <Button variant="ghost" size="sm" className="text-xs text-accent" onClick={() => navigate("/projects")}>
+                View all →
+              </Button>
+            </div>
+            {projectsLoading ? (
+              <Card className="shadow-subtle">
+                <div className="divide-y">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-4 px-5 py-4">
+                      <div className="h-8 w-8 rounded-full bg-muted animate-pulse" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 w-40 rounded bg-muted animate-pulse" />
+                        <div className="h-3 w-56 rounded bg-muted animate-pulse" />
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          ) : (projects || []).length === 0 ? (
-            <EmptyState
-              icon={FolderKanban}
-              title="No projects yet"
-              description="Create your first project to get started"
-              actionLabel="Create Project"
-              onAction={() => navigate("/projects?action=new")}
-            />
-          ) : (
-            <ProjectTable projects={projects || []} navigate={navigate} />
+                  ))}
+                </div>
+              </Card>
+            ) : (projects || []).length === 0 ? (
+              <EmptyState
+                icon={FolderKanban}
+                title="No projects yet"
+                description="Create your first project to get started"
+                actionLabel="Create Project"
+                onAction={() => navigate("/projects?action=new")}
+              />
+            ) : (
+              <ProjectTable projects={projects || []} navigate={navigate} />
+            )}
+          </div>
+
+          {/* Deadlines section (merged) */}
+          {!projectsLoading && projects && projects.length > 0 && (
+            <div>
+              <h2 className="mb-4 text-xs font-semibold text-muted-foreground uppercase tracking-widest">Deadlines</h2>
+              <DeadlinesSection projects={projects} navigate={navigate} />
+            </div>
           )}
         </div>
 
