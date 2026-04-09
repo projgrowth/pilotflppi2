@@ -841,6 +841,7 @@ export default function PlanReviewDetail() {
                                           animationDelay={i * 40}
                                           status={findingStatuses[gi] || "open"}
                                           onStatusChange={(status) => updateFindingStatus(gi, status)}
+                                          history={(findingHistory || []).filter(h => h.finding_index === gi)}
                                         />
                                       </div>
                                     );
