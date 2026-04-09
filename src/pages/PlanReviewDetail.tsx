@@ -232,18 +232,32 @@ export default function PlanReviewDetail() {
     setUploading(true);
     try {
       const newUrls: string[] = [...(review.file_urls || [])];
+      const newFilePaths: string[] = [];
       for (const file of Array.from(files)) {
         if (file.type !== "application/pdf") { toast.error(`${file.name} is not a PDF`); continue; }
         if (file.size > 20 * 1024 * 1024) { toast.error(`${file.name} exceeds 20MB limit`); continue; }
         const path = `plan-reviews/${review.id}/${file.name}`;
         const { error: uploadError } = await supabase.storage.from("documents").upload(path, file, { upsert: true });
         if (uploadError) throw uploadError;
-        // Store the path, not a public URL — bucket is private
         newUrls.push(path);
+        newFilePaths.push(path);
       }
       await supabase.from("plan_reviews").update({ file_urls: newUrls }).eq("id", review.id);
+      
+      // Also track in plan_review_files
+      if (newFilePaths.length > 0) {
+        await supabase.from("plan_review_files").insert(
+          newFilePaths.map(fp => ({
+            plan_review_id: review.id,
+            file_path: fp,
+            round: review.round,
+            uploaded_by: user?.id || null,
+          }))
+        );
+      }
+      
       queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
-      hasAutoRendered.current = false; // allow re-render
+      hasAutoRendered.current = false;
       setUploadSuccess(true);
       setTimeout(() => setUploadSuccess(false), 2500);
     } catch (err) {
