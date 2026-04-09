@@ -865,6 +865,7 @@ export default function PlanReviewDetail() {
                             round={review.round}
                             findings={findings}
                             findingStatuses={Object.fromEntries(Object.entries(findingStatuses).map(([k, v]) => [Number(k), v]))}
+                            firmInfo={firmSettings}
                           />
                         )}
                         {commentLetter && !generatingLetter && (
