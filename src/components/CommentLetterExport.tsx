@@ -258,7 +258,7 @@ ${config.submissionNotes.length > 0 ? `
 
 <p class="body-text">Pursuant to Florida Statute 553.791, Florida Private Providers, Inc. has completed a plan review of the above-referenced project. The following deficiencies and comments have been identified during our review of the submitted construction documents against the Florida Building Code, 8th Edition (2023) and all applicable referenced standards${config.amendments.length > 0 ? `, including ${config.label} County local amendments` : ''}.</p>
 
-<p class="body-text">This review was completed within the statutory 21-calendar-day review period. The applicant is required to address all deficiency items and resubmit corrected plans within <strong>${config.resubmissionDays} calendar days</strong>.</p>
+<p class="body-text">This review was completed within the statutory 30-business-day review period per F.S. 553.791(4)(b). The applicant is required to address all deficiency items and resubmit corrected plans within <strong>${config.resubmissionDays} calendar days</strong>.</p>
 
 <div class="summary-box">
   <h3>Review Summary</h3>
