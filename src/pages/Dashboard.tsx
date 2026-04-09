@@ -18,6 +18,7 @@ import {
 import { format, formatDistanceToNow } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { useMemo } from "react";
+import { QcPendingWidget } from "@/components/QcPendingWidget";
 
 /* ── Unified project list ── */
 
@@ -230,6 +231,11 @@ export default function Dashboard() {
             {action.label}
           </Button>
         ))}
+      </div>
+
+      {/* QC Pending Reviews */}
+      <div className="mb-6">
+        <QcPendingWidget />
       </div>
 
       {/* Two-column: project table + activity sidebar */}
