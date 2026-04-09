@@ -4,6 +4,16 @@ import type { Finding } from "@/components/FindingCard";
 import { getDisciplineLabel, getCountyLabel, DISCIPLINE_ORDER } from "@/lib/county-utils";
 import { getCountyRequirements, getSupplementalSectionLabel, type CountyRequirements, type SupplementalSection } from "@/lib/county-requirements";
 
+export interface FirmInfo {
+  firm_name: string;
+  license_number: string;
+  email: string;
+  phone: string;
+  address: string;
+  logo_url: string;
+  closing_language: string;
+}
+
 interface CommentLetterExportProps {
   projectName: string;
   address: string;
@@ -13,6 +23,7 @@ interface CommentLetterExportProps {
   round: number;
   findings: Finding[];
   findingStatuses: Record<number, string>;
+  firmInfo?: FirmInfo | null;
 }
 
 function groupByDiscipline(findings: Finding[]) {
