@@ -4,6 +4,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { callAI, streamAI } from "@/lib/ai";
 import { renderPDFPagesToImages, type PDFPageImage } from "@/lib/pdf-utils";
+import { useFirmSettings } from "@/hooks/useFirmSettings";
+import { useFindingHistory, logFindingStatusChange } from "@/hooks/useFindingHistory";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +70,9 @@ interface PlanReviewRow {
   finding_statuses?: Record<string, string> | null;
   previous_findings?: unknown;
   project?: ProjectInfo | null;
+  qc_status?: string;
+  qc_reviewer_id?: string | null;
+  qc_notes?: string;
 }
 
 type RightPanelMode = "findings" | "checklist" | "letter" | "county";
@@ -117,6 +123,9 @@ export default function PlanReviewDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { firmSettings } = useFirmSettings();
+  const { user } = useAuth();
+  const { data: findingHistory, refetch: refetchHistory } = useFindingHistory(id);
 
   const { data: review, isLoading } = useQuery({
     queryKey: ["plan-review", id],
@@ -200,11 +209,18 @@ export default function PlanReviewDetail() {
 
   const updateFindingStatus = useCallback((index: number, status: FindingStatus) => {
     setFindingStatuses((prev) => {
+      const oldStatus = prev[index] || "open";
       const next = { ...prev, [index]: status };
-      if (review) persistFindingStatuses(review.id, next);
+      if (review) {
+        persistFindingStatuses(review.id, next);
+        if (user && oldStatus !== status) {
+          logFindingStatusChange(review.id, index, oldStatus, status, user.id)
+            .then(() => refetchHistory());
+        }
+      }
       return next;
     });
-  }, [review, persistFindingStatuses]);
+  }, [review, persistFindingStatuses, user, refetchHistory]);
 
   useEffect(() => {
     if (!aiRunning) { setScanStep(0); return; }
@@ -219,18 +235,32 @@ export default function PlanReviewDetail() {
     setUploading(true);
     try {
       const newUrls: string[] = [...(review.file_urls || [])];
+      const newFilePaths: string[] = [];
       for (const file of Array.from(files)) {
         if (file.type !== "application/pdf") { toast.error(`${file.name} is not a PDF`); continue; }
         if (file.size > 20 * 1024 * 1024) { toast.error(`${file.name} exceeds 20MB limit`); continue; }
         const path = `plan-reviews/${review.id}/${file.name}`;
         const { error: uploadError } = await supabase.storage.from("documents").upload(path, file, { upsert: true });
         if (uploadError) throw uploadError;
-        // Store the path, not a public URL — bucket is private
         newUrls.push(path);
+        newFilePaths.push(path);
       }
       await supabase.from("plan_reviews").update({ file_urls: newUrls }).eq("id", review.id);
+      
+      // Also track in plan_review_files
+      if (newFilePaths.length > 0) {
+        await supabase.from("plan_review_files").insert(
+          newFilePaths.map(fp => ({
+            plan_review_id: review.id,
+            file_path: fp,
+            round: review.round,
+            uploaded_by: user?.id || null,
+          }))
+        );
+      }
+      
       queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
-      hasAutoRendered.current = false; // allow re-render
+      hasAutoRendered.current = false;
       setUploadSuccess(true);
       setTimeout(() => setUploadSuccess(false), 2500);
     } catch (err) {
@@ -828,6 +858,7 @@ export default function PlanReviewDetail() {
                                           animationDelay={i * 40}
                                           status={findingStatuses[gi] || "open"}
                                           onStatusChange={(status) => updateFindingStatus(gi, status)}
+                                          history={(findingHistory || []).filter(h => h.finding_index === gi)}
                                         />
                                       </div>
                                     );
@@ -850,10 +881,50 @@ export default function PlanReviewDetail() {
 
                 {rightPanel === "letter" && (
                   <div className="p-3 space-y-3">
+                    {/* QC Status Bar */}
+                    {hasFindings && review.ai_check_status === "complete" && (
+                      <div className={cn(
+                        "rounded-lg border px-3 py-2 flex items-center justify-between",
+                        review.qc_status === "qc_approved" ? "border-success/30 bg-success/5" :
+                        review.qc_status === "qc_rejected" ? "border-destructive/30 bg-destructive/5" :
+                        "border-[hsl(var(--warning))]/30 bg-[hsl(var(--warning))]/5"
+                      )}>
+                        <div className="flex items-center gap-2">
+                          <div className={cn("h-2 w-2 rounded-full",
+                            review.qc_status === "qc_approved" ? "bg-success" :
+                            review.qc_status === "qc_rejected" ? "bg-destructive" :
+                            "bg-[hsl(var(--warning))]"
+                          )} />
+                          <span className="text-[11px] font-semibold">
+                            {review.qc_status === "qc_approved" ? "QC Approved" :
+                             review.qc_status === "qc_rejected" ? "QC Rejected" : "Pending QC Review"}
+                          </span>
+                        </div>
+                        {review.qc_status === "pending_qc" && (
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="outline" className="h-6 text-[10px] text-destructive border-destructive/30"
+                              onClick={async () => {
+                                await supabase.from("plan_reviews").update({ qc_status: "qc_rejected", qc_reviewer_id: user?.id }).eq("id", review.id);
+                                await supabase.from("activity_log").insert({ event_type: "qc_rejected", description: "Plan review QC rejected", project_id: review.project_id, actor_id: user?.id, actor_type: "user" });
+                                queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
+                                toast.error("QC rejected");
+                              }}>Reject</Button>
+                            <Button size="sm" className="h-6 text-[10px] bg-success text-success-foreground hover:bg-success/90"
+                              onClick={async () => {
+                                await supabase.from("plan_reviews").update({ qc_status: "qc_approved", qc_reviewer_id: user?.id }).eq("id", review.id);
+                                await supabase.from("activity_log").insert({ event_type: "qc_approved", description: "Plan review QC approved", project_id: review.project_id, actor_id: user?.id, actor_type: "user" });
+                                queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
+                                toast.success("QC approved — exports unlocked");
+                              }}>Approve</Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Comment Letter</span>
                       <div className="flex items-center gap-1.5">
-                        {hasFindings && (
+                        {hasFindings && review.qc_status === "qc_approved" && (
                           <CountyDocumentPackage
                             projectName={review.project?.name || ""}
                             address={review.project?.address || ""}
@@ -863,7 +934,11 @@ export default function PlanReviewDetail() {
                             round={review.round}
                             findings={findings}
                             findingStatuses={Object.fromEntries(Object.entries(findingStatuses).map(([k, v]) => [Number(k), v]))}
+                            firmInfo={firmSettings}
                           />
+                        )}
+                        {hasFindings && review.qc_status !== "qc_approved" && (
+                          <span className="text-[9px] text-muted-foreground italic">QC approval required for export</span>
                         )}
                         {commentLetter && !generatingLetter && (
                           <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={copyLetter}>
@@ -902,7 +977,10 @@ export default function PlanReviewDetail() {
                             <Button size="sm" variant="outline" className="text-xs flex-1" onClick={() => generateCommentLetter(review)}>
                               <Sparkles className="h-3 w-3 mr-1" /> Regenerate
                             </Button>
-                            <Button size="sm" className="text-xs flex-1 bg-accent text-accent-foreground hover:bg-accent/90">
+                            <Button size="sm" className="text-xs flex-1 bg-accent text-accent-foreground hover:bg-accent/90"
+                              disabled={review.qc_status !== "qc_approved"}
+                              title={review.qc_status !== "qc_approved" ? "QC approval required" : ""}
+                            >
                               <Send className="h-3 w-3 mr-1" /> Send to Contractor
                             </Button>
                           </div>

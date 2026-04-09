@@ -4,6 +4,16 @@ import type { Finding } from "@/components/FindingCard";
 import { getDisciplineLabel, getCountyLabel, DISCIPLINE_ORDER } from "@/lib/county-utils";
 import { getCountyRequirements, getSupplementalSectionLabel, type CountyRequirements, type SupplementalSection } from "@/lib/county-requirements";
 
+export interface FirmInfo {
+  firm_name: string;
+  license_number: string;
+  email: string;
+  phone: string;
+  address: string;
+  logo_url: string;
+  closing_language: string;
+}
+
 interface CommentLetterExportProps {
   projectName: string;
   address: string;
@@ -13,6 +23,7 @@ interface CommentLetterExportProps {
   round: number;
   findings: Finding[];
   findingStatuses: Record<number, string>;
+  firmInfo?: FirmInfo | null;
 }
 
 function groupByDiscipline(findings: Finding[]) {
@@ -142,7 +153,8 @@ function buildSupplementalSections(config: CountyRequirements): string {
 }
 
 function buildLetterHTML(props: CommentLetterExportProps): string {
-  const { projectName, address, county, jurisdiction, tradeType, round, findings, findingStatuses } = props;
+  const { projectName, address, county, jurisdiction, tradeType, round, findings, findingStatuses, firmInfo } = props;
+  const firm = firmInfo || { firm_name: "FLORIDA PRIVATE PROVIDERS", license_number: "PVP-XXXXX", email: "", phone: "", address: "", logo_url: "", closing_language: "" };
   const config = getCountyRequirements(county);
   const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const grouped = groupByDiscipline(findings);
@@ -205,10 +217,12 @@ function buildLetterHTML(props: CommentLetterExportProps): string {
 </head><body>
 
 <div class="letterhead">
-  <h1>FLORIDA PRIVATE PROVIDERS</h1>
+  <h1>${firm.firm_name || "FLORIDA PRIVATE PROVIDERS"}</h1>
   <p>LICENSED PRIVATE PROVIDER FIRM</p>
-  <p class="license">License # PVP-XXXXX | F.S. 553.791</p>
+  <p class="license">License # ${firm.license_number || "PVP-XXXXX"} | F.S. 553.791</p>
   <p>Plan Review &bull; Inspections &bull; Code Compliance</p>
+  ${firm.address ? `<p style="font-size:7.5pt;color:#718096;margin-top:2px">${firm.address}</p>` : ""}
+  ${firm.phone || firm.email ? `<p style="font-size:7.5pt;color:#718096">${[firm.phone, firm.email].filter(Boolean).join(" | ")}</p>` : ""}
 </div>
 
 ${config.buildingDepartment.address ? `
@@ -290,7 +304,7 @@ ${buildSupplementalSections(config)}
   
   ${config.amendments.length > 0 ? `<p class="body-text">This review incorporates ${config.label} County local amendments to the Florida Building Code, 8th Edition (2023), including: ${config.amendments.map(a => a.ref).join("; ")}.</p>` : ""}
   
-  <p class="body-text">Should you have any questions regarding this comment letter, please contact our office at your earliest convenience.</p>
+  ${firm.closing_language ? `<p class="body-text">${firm.closing_language}</p>` : '<p class="body-text">Should you have any questions regarding this comment letter, please contact our office at your earliest convenience.</p>'}
   
   <p class="body-text">Respectfully submitted,</p>
 </div>
@@ -298,13 +312,13 @@ ${buildSupplementalSections(config)}
 <div class="signature-block">
   <div class="signature-line">
     Plan Review Engineer<br>
-    Florida Private Providers, Inc.<br>
-    License # PVP-XXXXX
+    ${firm.firm_name || "Florida Private Providers, Inc."}<br>
+    License # ${firm.license_number || "PVP-XXXXX"}
   </div>
 </div>
 
 <div class="footer">
-  Florida Private Providers, Inc. | Licensed Private Provider under F.S. 553.791 | This document is confidential and intended for the addressee only.
+  ${firm.firm_name || "Florida Private Providers, Inc."} | Licensed Private Provider under F.S. 553.791 | This document is confidential and intended for the addressee only.
 </div>
 
 </body></html>`;

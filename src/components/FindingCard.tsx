@@ -1,9 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import { getDisciplineIcon, getDisciplineColor, getDisciplineLabel } from "@/lib/county-utils";
-import { AlertTriangle, AlertCircle, Info, CheckCheck, MapPin, Clock, ArrowRightLeft, ChevronRight } from "lucide-react";
+import { AlertTriangle, AlertCircle, Info, CheckCheck, MapPin, Clock, ArrowRightLeft, ChevronRight, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, forwardRef } from "react";
 import type { FindingStatus } from "@/components/FindingStatusFilter";
+import type { FindingHistoryEntry } from "@/hooks/useFindingHistory";
 
 interface MarkupData {
   page_index: number;
@@ -61,11 +62,13 @@ interface FindingCardProps {
   status?: FindingStatus;
   onStatusChange?: (status: FindingStatus) => void;
   defaultExpanded?: boolean;
+  history?: FindingHistoryEntry[];
 }
 
 export const FindingCard = forwardRef<HTMLDivElement, FindingCardProps>(
-  ({ finding, index, globalIndex, isActive, onLocateClick, animationDelay = 0, status = "open", onStatusChange, defaultExpanded = false }, ref) => {
+  ({ finding, index, globalIndex, isActive, onLocateClick, animationDelay = 0, status = "open", onStatusChange, defaultExpanded = false, history = [] }, ref) => {
     const [expanded, setExpanded] = useState(defaultExpanded);
+    const [showHistory, setShowHistory] = useState(false);
     const sev = severityConfig[finding.severity] || severityConfig.minor;
     const isResolved = status === "resolved";
     const isDeferred = status === "deferred";
@@ -190,7 +193,31 @@ export const FindingCard = forwardRef<HTMLDivElement, FindingCardProps>(
               >
                 <StatusIcon className="h-3 w-3" /> {currentStatusOption.label}
               </button>
+              {history.length > 0 && (
+                <button
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors ml-auto"
+                  onClick={(e) => { e.stopPropagation(); setShowHistory(!showHistory); }}
+                >
+                  <History className="h-3 w-3" /> {history.length}
+                </button>
+              )}
             </div>
+
+            {/* History log */}
+            {showHistory && history.length > 0 && (
+              <div className="border-t border-border/30 pt-1.5 mt-1 space-y-1">
+                <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Audit Trail</p>
+                {history.slice(0, 10).map((h) => (
+                  <div key={h.id} className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
+                    <span className="font-mono">{new Date(h.changed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                    <span className="text-muted-foreground/50">•</span>
+                    <span className="capitalize">{h.old_status}</span>
+                    <span className="text-muted-foreground/50">→</span>
+                    <span className="capitalize font-medium text-foreground/70">{h.new_status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

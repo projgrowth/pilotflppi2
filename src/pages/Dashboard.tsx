@@ -9,6 +9,8 @@ import { KpiCard } from "@/components/KpiCard";
 import { useProjects, getDaysElapsed } from "@/hooks/useProjects";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { useActivityLog, getEventColor } from "@/hooks/useActivityLog";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import {
   FolderKanban, AlertTriangle, Plus, CalendarPlus,
   Sparkles, Radar, ChevronRight, Timer, CheckCircle2, Briefcase,
@@ -127,6 +129,20 @@ export default function Dashboard() {
   const { data: projects, isLoading: projectsLoading } = useProjects();
   const { data: activity, isLoading: activityLoading } = useActivityLog(8);
 
+  // Overdue projects query
+  const { data: overdueProjects } = useQuery({
+    queryKey: ["overdue-projects"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("projects")
+        .select("id, name, deadline_at")
+        .lt("deadline_at", new Date().toISOString())
+        .not("status", "in", '("certificate_issued","cancelled","on_hold")');
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -141,6 +157,25 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 md:p-8 max-w-7xl">
+      {/* Overdue banner */}
+      {overdueProjects && overdueProjects.length > 0 && (
+        <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 flex items-center gap-3 animate-pulse">
+          <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-destructive">
+              {overdueProjects.length} project{overdueProjects.length > 1 ? "s" : ""} overdue
+            </p>
+            <p className="text-xs text-destructive/70">
+              {overdueProjects.slice(0, 3).map(p => p.name).join(", ")}
+              {overdueProjects.length > 3 ? ` +${overdueProjects.length - 3} more` : ""}
+            </p>
+          </div>
+          <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={() => navigate("/deadlines")}>
+            View
+          </Button>
+        </div>
+      )}
+
       {/* Compact header: greeting + date on one line */}
       <div className="mb-6">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
