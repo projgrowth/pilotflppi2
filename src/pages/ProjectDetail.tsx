@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useProject, getDaysElapsed, getDaysRemaining } from "@/hooks/useProjects";
 import { useProjectActivityLog, getEventColor } from "@/hooks/useActivityLog";
+import { usePlanReviewFilesByProject } from "@/hooks/usePlanReviewFiles";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,7 +12,7 @@ import { HorizontalStepper } from "@/components/HorizontalStepper";
 import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { FileText, ClipboardCheck, Activity, Upload, Loader2 } from "lucide-react";
+import { FileText, ClipboardCheck, Activity, Upload, Loader2, Download } from "lucide-react";
 import { StatutoryClockCard } from "@/components/StatutoryClockCard";
 import { format, formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -73,9 +74,35 @@ export default function ProjectDetail() {
   const { data: project, isLoading } = useProject(id || "");
   const { data: activity, isLoading: activityLoading } = useProjectActivityLog(id || "");
   const { data: documents } = useProjectDocuments(id || "");
+  const { data: planReviewFiles } = usePlanReviewFilesByProject(id);
   const { data: reviews } = useProjectReviews(id || "");
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Merge storage documents + plan review files into a unified list
+  const allDocuments = (() => {
+    const items: { key: string; name: string; date: string; source: string; storagePath?: string }[] = [];
+    for (const doc of documents || []) {
+      items.push({ key: `storage-${doc.name}`, name: doc.name, date: doc.created_at, source: "upload", storagePath: `projects/${id}/${doc.name}` });
+    }
+    for (const f of planReviewFiles || []) {
+      const fileName = f.file_path.split("/").pop() || f.file_path;
+      items.push({ key: `prf-${f.id}`, name: `R${f.round} — ${fileName}`, date: f.uploaded_at, source: "plan-review", storagePath: f.file_path });
+    }
+    items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return items;
+  })();
+
+  const handleDownloadDoc = async (storagePath: string, displayName: string) => {
+    const { data, error } = await supabase.storage.from("documents").download(storagePath);
+    if (error) { toast.error(error.message); return; }
+    const url = URL.createObjectURL(data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = displayName;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleUpload = async (files: FileList | null) => {
     if (!files || !id) return;
@@ -204,8 +231,8 @@ export default function ProjectDetail() {
               <TabsTrigger value="activity" className="gap-1.5"><Activity className="h-3.5 w-3.5" />Activity</TabsTrigger>
               <TabsTrigger value="documents" className="gap-1.5">
                 <FileText className="h-3.5 w-3.5" />Documents
-                {(documents || []).length > 0 && (
-                  <span className="ml-1 text-[10px] bg-accent/15 text-accent rounded-full px-1.5 py-0.5 font-semibold">{(documents || []).length}</span>
+                {allDocuments.length > 0 && (
+                  <span className="ml-1 text-[10px] bg-accent/15 text-accent rounded-full px-1.5 py-0.5 font-semibold">{allDocuments.length}</span>
                 )}
               </TabsTrigger>
               <TabsTrigger value="plan-review" className="gap-1.5">
@@ -263,15 +290,21 @@ export default function ProjectDetail() {
                     <p className="text-xs text-muted-foreground">{uploading ? "Uploading..." : "Drop files or click to upload"}</p>
                     <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => handleUpload(e.target.files)} />
                   </div>
-                  {(documents || []).length === 0 ? (
+                  {allDocuments.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-4">No documents uploaded yet</p>
                   ) : (
                     <div className="divide-y">
-                      {(documents || []).map((doc) => (
-                        <div key={doc.name} className="flex items-center gap-3 py-2">
+                      {allDocuments.map((doc) => (
+                        <div key={doc.key} className="flex items-center gap-3 py-2">
                           <FileText className="h-4 w-4 text-accent shrink-0" />
                           <span className="text-sm truncate flex-1">{doc.name}</span>
-                          <span className="text-[10px] text-muted-foreground">{format(new Date(doc.created_at), "MMM d")}</span>
+                          {doc.source === "plan-review" && <Badge variant="secondary" className="text-[9px] shrink-0">Plan Review</Badge>}
+                          <span className="text-[10px] text-muted-foreground shrink-0">{format(new Date(doc.date), "MMM d")}</span>
+                          {doc.storagePath && (
+                            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleDownloadDoc(doc.storagePath!, doc.name)}>
+                              <Download className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </div>
