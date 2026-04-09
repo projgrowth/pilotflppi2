@@ -194,7 +194,6 @@ export default function Documents() {
                   <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteFile(file.displayPath)}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
-                  </Button>
                 </div>
               );
             })}
