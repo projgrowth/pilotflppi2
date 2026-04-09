@@ -9,6 +9,8 @@ import { KpiCard } from "@/components/KpiCard";
 import { useProjects, getDaysElapsed } from "@/hooks/useProjects";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { useActivityLog, getEventColor } from "@/hooks/useActivityLog";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import {
   FolderKanban, AlertTriangle, Plus, CalendarPlus,
   Sparkles, Radar, ChevronRight, Timer, CheckCircle2, Briefcase,
