@@ -499,8 +499,8 @@ serve(async (req) => {
       if (toolCall?.function?.arguments) {
         try {
           const parsed = JSON.parse(toolCall.function.arguments);
-          // For extract_project_info, return the object directly
-          if (action === "extract_project_info") {
+          // For extract_project_info and extract_zoning_data, return the object directly
+          if (action === "extract_project_info" || action === "extract_zoning_data") {
             return new Response(JSON.stringify({ content: JSON.stringify(parsed) }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
