@@ -11,8 +11,10 @@ import { FileDown, Package, FileText, ClipboardList, Shield, Zap, ChevronDown } 
 import type { Finding } from "@/components/FindingCard";
 import { getCountyRequirements, getSupplementalSectionLabel, type SupplementalSection } from "@/lib/county-requirements";
 import { CommentLetterExport, type FirmInfo } from "@/components/CommentLetterExport";
+import { supabase } from "@/integrations/supabase/client";
 
 interface CountyDocumentPackageProps {
+  projectId?: string;
   projectName: string;
   address: string;
   county: string;
@@ -111,7 +113,7 @@ function buildInspectionReadinessHTML(props: CountyDocumentPackageProps): string
 </body></html>`;
 }
 
-function downloadHTML(html: string, filename: string) {
+function downloadHTML(html: string, filename: string, projectId?: string) {
   const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -119,6 +121,10 @@ function downloadHTML(html: string, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+  // Also persist to storage
+  if (projectId) {
+    supabase.storage.from("documents").upload(`projects/${projectId}/${filename}`, blob, { upsert: true }).catch(() => {});
+  }
 }
 
 export function CountyDocumentPackage(props: CountyDocumentPackageProps) {
@@ -128,12 +134,12 @@ export function CountyDocumentPackage(props: CountyDocumentPackageProps) {
 
   const handleDownloadProductChecklist = () => {
     const html = buildProductChecklistHTML(props);
-    downloadHTML(html, `Product-Checklist-${safeName}.html`);
+    downloadHTML(html, `Product-Checklist-${safeName}.html`, props.projectId);
   };
 
   const handleDownloadInspectionPacket = () => {
     const html = buildInspectionReadinessHTML(props);
-    downloadHTML(html, `Inspection-Readiness-${safeName}.html`);
+    downloadHTML(html, `Inspection-Readiness-${safeName}.html`, props.projectId);
   };
 
   const handleFullPackage = async () => {
