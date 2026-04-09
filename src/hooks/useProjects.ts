@@ -23,6 +23,7 @@ export interface Project {
   statutory_deadline_at: string | null;
   review_clock_started_at: string | null;
   review_clock_paused_at: string | null;
+  inspection_clock_started_at: string | null;
   hold_reason: string | null;
 }
 

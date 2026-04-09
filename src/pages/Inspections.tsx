@@ -16,12 +16,68 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { Inspection } from "@/hooks/useInspections";
 
-const tradeChecklists: Record<string, string[]> = {
-  building: ["Structural framing verified", "Fire-stopping in place", "Egress paths clear", "ADA compliance checked", "Building envelope sealed"],
-  electrical: ["Panel wiring per NEC", "GFCI protection verified", "Grounding system tested", "Arc-fault breakers installed", "Load calculations confirmed"],
-  plumbing: ["Pressure test passed", "Backflow preventers installed", "Vent stack connections verified", "Water heater compliance", "Drainage slope confirmed"],
-  mechanical: ["Ductwork sealed & insulated", "HVAC load calculations verified", "Refrigerant lines tested", "Thermostat wiring correct", "Exhaust ventilation confirmed"],
-  general: ["Site conditions acceptable", "Permits posted & visible", "Safety equipment present", "Contractor on-site", "Previous deficiencies resolved"],
+const tradeChecklists: Record<string, { item: string; code: string }[]> = {
+  building: [
+    { item: "Structural framing verified per approved plans", code: "FBC 1604" },
+    { item: "Foundation per approved soil report & FBC 1809", code: "FBC 1809" },
+    { item: "Roof-to-wall connections per FBC 2304.9", code: "FBC 2304.9" },
+    { item: "Fire-stopping at penetrations per FBC 714", code: "FBC 714" },
+    { item: "Fire-resistance rated assemblies per FBC 703", code: "FBC 703" },
+    { item: "Exit signs & emergency lighting per FBC 1013", code: "FBC 1013" },
+    { item: "Egress path width & travel distance per FBC 1005", code: "FBC 1005" },
+    { item: "ADA accessible route & clearances per FBC 1104", code: "FBC 1104" },
+    { item: "Building envelope sealed & weather-resistant", code: "FBC 1403" },
+    { item: "Impact protection / shutters (wind-borne debris)", code: "FBC 1626" },
+    { item: "Permits posted & visible on site", code: "F.S. 553.79" },
+    { item: "Setbacks and lot coverage verified", code: "Local Zoning" },
+    { item: "Previous deficiencies resolved", code: "N/A" },
+  ],
+  electrical: [
+    { item: "Service entrance & panel sizing per NEC 230", code: "NEC 230" },
+    { item: "Branch circuit design per NEC 210", code: "NEC 210" },
+    { item: "GFCI protection (kitchens, baths, garages, exterior)", code: "NEC 210.8" },
+    { item: "AFCI protection in dwelling bedrooms", code: "NEC 210.12" },
+    { item: "Grounding electrode system per NEC 250", code: "NEC 250" },
+    { item: "Conductor sizing & overcurrent protection", code: "NEC 240" },
+    { item: "Panel labeling & directory complete", code: "NEC 408.4" },
+    { item: "Outdoor/wet location fixtures rated", code: "NEC 410.10" },
+    { item: "Surge protection device (SPD) installed", code: "NEC 230.67" },
+    { item: "Load calculations provided per NEC 220", code: "NEC 220" },
+    { item: "EV ready parking per FBC-B 406.9", code: "FBC-B 406.9" },
+  ],
+  plumbing: [
+    { item: "Pressure test passed (min 15 min hold)", code: "FPC 312" },
+    { item: "Backflow preventers at all cross-connections", code: "FPC 608" },
+    { item: "Vent stack connections per FPC 901–917", code: "FPC 901" },
+    { item: "Water heater T&P relief valve & pan", code: "FPC 504.6" },
+    { item: "Drainage slope ≥ 1/4\"/ft for ≤ 3\" pipe", code: "FPC 704" },
+    { item: "Fixture count per occupancy (FPC Table 403.1)", code: "FPC 403" },
+    { item: "Water supply sizing per FPC 604", code: "FPC 604" },
+    { item: "Cleanout access per FPC 708", code: "FPC 708" },
+    { item: "Hot water recirculation or demand system", code: "FECC C404" },
+    { item: "Gas piping tested & labeled", code: "FFC 406.4" },
+  ],
+  mechanical: [
+    { item: "HVAC load calculations (Manual J or equiv.)", code: "FMC 301" },
+    { item: "Duct sizing per Manual D", code: "FMC 603" },
+    { item: "Duct sealing & insulation per FECC C403", code: "FECC C403" },
+    { item: "Ventilation rates per ASHRAE 62.1/62.2", code: "FMC 401" },
+    { item: "Refrigerant line sizing & brazing", code: "FMC 1101" },
+    { item: "Equipment efficiency meets SEER2 minimum", code: "FECC C403.3" },
+    { item: "Thermostat wiring & placement correct", code: "FMC 603" },
+    { item: "Kitchen/bath exhaust per FMC 501", code: "FMC 501" },
+    { item: "Dryer exhaust vent ≤ 35 ft per FMC 504", code: "FMC 504" },
+    { item: "Condensate line to approved terminus", code: "FMC 307.2.3" },
+    { item: "Platform/clearance for equipment access", code: "FMC 306" },
+  ],
+  general: [
+    { item: "Site conditions acceptable", code: "N/A" },
+    { item: "Permits posted & visible", code: "F.S. 553.79" },
+    { item: "Safety equipment present", code: "OSHA" },
+    { item: "Contractor on-site & licensed", code: "F.S. 489" },
+    { item: "Previous deficiencies resolved", code: "N/A" },
+    { item: "Approved plans on-site & accessible", code: "FBC 107.3" },
+  ],
 };
 
 export default function Inspections() {
@@ -223,18 +279,22 @@ export default function Inspections() {
                   {tradeType.charAt(0).toUpperCase() + tradeType.slice(1)} Checklist
                 </h3>
                 <div className="space-y-2">
-                  {checklist.map((item) => (
-                    <label key={item} className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/30 transition-colors">
+                  {checklist.map((entry) => (
+                    <label key={entry.item} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/30 transition-colors">
                       <Checkbox
-                        checked={checkedItems.has(item)}
+                        checked={checkedItems.has(entry.item)}
                         onCheckedChange={(checked) => {
                           const next = new Set(checkedItems);
-                          checked ? next.add(item) : next.delete(item);
+                          checked ? next.add(entry.item) : next.delete(entry.item);
                           setCheckedItems(next);
                         }}
                         disabled={selectedInspection.result !== "pending"}
+                        className="mt-0.5"
                       />
-                      <span className="text-sm">{item}</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm">{entry.item}</span>
+                        <code className="block text-[9px] font-mono text-muted-foreground mt-0.5">{entry.code}</code>
+                      </div>
                     </label>
                   ))}
                 </div>

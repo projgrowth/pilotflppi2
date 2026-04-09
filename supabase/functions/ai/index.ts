@@ -41,12 +41,9 @@ County-specific context will be provided in the payload. Use it to:
 - Apply the correct product approval standard (NOA for HVHZ counties, FL# for others)
 - Flag county-specific wind speed and impact protection requirements
 
-Produce 8-12 findings spanning multiple disciplines. Ensure at least:
-- 2 structural findings
-- 1-2 life safety / egress findings
-- 1 energy code finding
-- 1 ADA finding
-- Remaining across fire, MEP as appropriate for the trade type
+Report ALL code violations and deficiencies found. Do not pad with advisory items to meet a count — if fewer than 3 real issues exist, report only those and note that the plans are substantially compliant. Cover all relevant disciplines (structural, life safety, fire, MEP, energy, ADA) but only report genuine code violations or deficiencies.
+
+Also detect the FBC edition referenced on the plans. If the plans cite an edition other than FBC 2023 (8th Edition), include an advisory finding noting the edition mismatch.
 
 Return ONLY a JSON array of findings with no additional text.`,
 
@@ -75,7 +72,9 @@ For each finding, provide ALL of the following fields:
 - confidence: "verified" | "likely" | "advisory"
 - markup: Object with { page_index: <0-based index of the image where the issue is>, x: <percentage from left 0-100>, y: <percentage from top 0-100>, width: <percentage width 5-30>, height: <percentage height 3-20> } indicating WHERE on the plan the issue is located. Be as precise as possible.
 
-Produce 8-15 findings based on what you actually see in the plans. Focus on REAL issues visible in the drawings.
+Report ALL code violations and deficiencies you actually see in the plans. Do not fabricate findings to meet a target count — if few real issues exist, report only those and note substantial compliance. Focus on REAL issues visible in the drawings.
+
+Also detect the FBC edition referenced on the plans. If visible and not FBC 2023 (8th Edition), include an advisory finding noting the edition mismatch.
 
 Return ONLY a JSON array of findings with no additional text.`,
 
@@ -111,7 +110,7 @@ Plan Review Comment Letter
 - Trade(s) Under Review
 
 **BODY:**
-- Opening paragraph referencing F.S. 553.791 and the statutory 21-day review period
+- Opening paragraph referencing F.S. 553.791 and the statutory 30-business-day review period per F.S. 553.791(4)(b)
 - Group deficiencies BY DISCIPLINE with numbered items
 - Each deficiency must include:
   - The FBC 2023 code section or referenced standard
