@@ -91,6 +91,47 @@ export type Database = {
         }
         Relationships: []
       }
+      finding_status_history: {
+        Row: {
+          changed_at: string
+          changed_by: string
+          finding_index: number
+          id: string
+          new_status: string
+          note: string | null
+          old_status: string
+          plan_review_id: string
+        }
+        Insert: {
+          changed_at?: string
+          changed_by: string
+          finding_index: number
+          id?: string
+          new_status: string
+          note?: string | null
+          old_status?: string
+          plan_review_id: string
+        }
+        Update: {
+          changed_at?: string
+          changed_by?: string
+          finding_index?: number
+          id?: string
+          new_status?: string
+          note?: string | null
+          old_status?: string
+          plan_review_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finding_status_history_plan_review_id_fkey"
+            columns: ["plan_review_id"]
+            isOneToOne: false
+            referencedRelation: "plan_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       firm_settings: {
         Row: {
           address: string | null
