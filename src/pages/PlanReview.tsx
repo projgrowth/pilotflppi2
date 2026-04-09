@@ -56,10 +56,15 @@ export default function PlanReview() {
   const { data: reviews, isLoading } = usePlanReviews();
   const navigate = useNavigate();
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const handleWizardComplete = useCallback((reviewId: string) => {
     navigate(`/plan-review/${reviewId}`);
   }, [navigate]);
+
+  const filteredReviews = (reviews || []).filter((r) =>
+    statusFilter === "all" ? true : r.ai_check_status === statusFilter
+  );
 
   const totalReviews = reviews?.length || 0;
   const completedReviews = reviews?.filter((r) => r.ai_check_status === "complete").length || 0;
@@ -102,19 +107,34 @@ export default function PlanReview() {
         </div>
       )}
 
+      {/* Status filter pills */}
+      {totalReviews > 0 && (
+        <div className="filter-pills mb-6">
+          {["all", "pending", "running", "complete", "error"].map((status) => (
+            <button
+              key={status}
+              onClick={() => setStatusFilter(status)}
+              className={cn("filter-pill", statusFilter === status && "active")}
+            >
+              {status === "all" ? "All" : status.charAt(0).toUpperCase() + status.slice(1)}
+            </button>
+          ))}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-16 rounded-lg" />
           ))}
         </div>
-      ) : (reviews || []).length === 0 ? (
+      ) : filteredReviews.length === 0 ? (
         <EmptyState
           icon={FileSearch}
-          title="No reviews in queue"
-          description="Upload plan documents to start your first AI-powered review"
-          actionLabel="Start New Review"
-          onAction={() => setWizardOpen(true)}
+          title={statusFilter === "all" ? "No reviews in queue" : `No ${statusFilter} reviews`}
+          description={statusFilter === "all" ? "Upload plan documents to start your first AI-powered review" : "Try a different filter"}
+          actionLabel={statusFilter === "all" ? "Start New Review" : undefined}
+          onAction={statusFilter === "all" ? () => setWizardOpen(true) : undefined}
         />
       ) : (
         <Card className="shadow-subtle">
@@ -130,7 +150,7 @@ export default function PlanReview() {
             <span />
           </div>
           <div className="divide-y">
-            {(reviews || []).map((review) => {
+            {filteredReviews.map((review) => {
               const findingsCount = Array.isArray(review.ai_findings) ? (review.ai_findings as Finding[]).length : 0;
               const critical = hasCriticalFindings(review);
               const hasFiles = review.file_urls && review.file_urls.length > 0;

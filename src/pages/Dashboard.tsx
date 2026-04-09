@@ -11,8 +11,8 @@ import { useActivityLog, getEventColor } from "@/hooks/useActivityLog";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  FolderKanban, AlertTriangle, Plus, CalendarPlus,
-  Sparkles, Radar, ChevronRight, Timer, CheckCircle2, Briefcase, Gavel,
+  FolderKanban, AlertTriangle, Plus,
+  Sparkles, ChevronRight, Timer, CheckCircle2, Briefcase, Gavel,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useNavigate } from "react-router-dom";
@@ -226,17 +226,9 @@ export default function Dashboard() {
           <Plus className="h-4 w-4 mr-2" />
           New Intake
         </Button>
-        <Button variant="outline" size="sm" onClick={() => navigate("/inspections")}>
-          <CalendarPlus className="h-4 w-4 mr-1.5" />
-          Schedule Inspection
-        </Button>
         <Button variant="outline" size="sm" onClick={() => navigate("/plan-review")}>
           <Sparkles className="h-4 w-4 mr-1.5" />
           Run AI Check
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => navigate("/lead-radar")}>
-          <Radar className="h-4 w-4 mr-1.5" />
-          Find Leads
         </Button>
       </div>
 
