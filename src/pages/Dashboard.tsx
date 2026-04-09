@@ -157,6 +157,25 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 md:p-8 max-w-7xl">
+      {/* Overdue banner */}
+      {overdueProjects && overdueProjects.length > 0 && (
+        <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 flex items-center gap-3 animate-pulse">
+          <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-destructive">
+              {overdueProjects.length} project{overdueProjects.length > 1 ? "s" : ""} overdue
+            </p>
+            <p className="text-xs text-destructive/70">
+              {overdueProjects.slice(0, 3).map(p => p.name).join(", ")}
+              {overdueProjects.length > 3 ? ` +${overdueProjects.length - 3} more` : ""}
+            </p>
+          </div>
+          <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={() => navigate("/deadlines")}>
+            View
+          </Button>
+        </div>
+      )}
+
       {/* Compact header: greeting + date on one line */}
       <div className="mb-6">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
