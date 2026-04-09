@@ -43,7 +43,7 @@
     --input: 210 14% 90%;
     --ring: 152 44% 17%;
 
-    --radius: 0.375rem;
+    --radius: 0.5rem;
 
     --sidebar-background: 152 50% 12%;
     --sidebar-foreground: 152 15% 65%;
@@ -125,6 +125,15 @@
     box-shadow: var(--shadow-subtle);
   }
   .list-row {
-    @apply flex items-center gap-4 px-5 py-3.5 transition-all duration-150 cursor-pointer hover:bg-muted/50 active:scale-[0.998];
+    @apply flex items-center gap-4 px-5 py-4 transition-all duration-150 cursor-pointer hover:bg-muted/40 active:scale-[0.998];
+  }
+  .filter-pills {
+    @apply flex gap-1 rounded-lg bg-muted/50 p-1;
+  }
+  .filter-pill {
+    @apply px-3 py-1.5 text-sm rounded-md transition-all duration-150 text-muted-foreground hover:text-foreground;
+  }
+  .filter-pill-active {
+    @apply bg-background text-foreground font-medium shadow-sm;
   }
 }
