@@ -91,6 +91,48 @@ export type Database = {
         }
         Relationships: []
       }
+      firm_settings: {
+        Row: {
+          address: string | null
+          closing_language: string | null
+          created_at: string
+          email: string | null
+          firm_name: string
+          id: string
+          license_number: string | null
+          logo_url: string | null
+          phone: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address?: string | null
+          closing_language?: string | null
+          created_at?: string
+          email?: string | null
+          firm_name?: string
+          id?: string
+          license_number?: string | null
+          logo_url?: string | null
+          phone?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          closing_language?: string | null
+          created_at?: string
+          email?: string | null
+          firm_name?: string
+          id?: string
+          license_number?: string | null
+          logo_url?: string | null
+          phone?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       inspections: {
         Row: {
           certificate_issued: boolean
