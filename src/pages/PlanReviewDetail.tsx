@@ -118,6 +118,7 @@ export default function PlanReviewDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { firmSettings } = useFirmSettings();
 
   const { data: review, isLoading } = useQuery({
     queryKey: ["plan-review", id],
