@@ -62,6 +62,7 @@ interface FindingCardProps {
   status?: FindingStatus;
   onStatusChange?: (status: FindingStatus) => void;
   defaultExpanded?: boolean;
+  history?: FindingHistoryEntry[];
 }
 
 export const FindingCard = forwardRef<HTMLDivElement, FindingCardProps>(
