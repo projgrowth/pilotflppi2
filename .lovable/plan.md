@@ -1,62 +1,116 @@
 
-## Plan: County-Specific Document Generation
 
-### Problem
-The comment letter and generated documents are generic — they use the same template, boilerplate, and requirements regardless of which Florida county the project is in. Each county building department has different submission requirements, forms, amendment references, and supplemental documents.
+## Plan: System-Wide Improvements — Sequential Implementation
 
-### What changes
+This plan implements all discussed improvements in dependency order. Each phase builds on the previous one.
 
-**1. Create a county requirements registry (`src/lib/county-requirements.ts`)**
+---
 
-A structured config file mapping each major Florida county to its specific requirements:
-- **Submission format preferences** (e.g., Miami-Dade requires NOA numbers on every product, Broward wants specific form references)
-- **County-specific code amendments** to cite in the letter (e.g., Miami-Dade Sec. 8A, Broward County amendments to FBC Ch. 17)
-- **Required supplemental sections** per county: wind mitigation forms, product approval tables (FL# vs NOA), flood zone statements, energy compliance paths, threshold building disclosures
-- **Letterhead/addressee info**: Building Official name/title, department name, mailing address for each county/jurisdiction
-- **Resubmission timelines** (some counties differ from the standard 14-day)
-- **Special flags**: HVHZ (already exists), coastal construction control line (CCCL), flood zone requirements, threshold building thresholds
+### Phase 1: Persist Firm Settings to Database
 
-Cover the major counties: Miami-Dade, Broward, Palm Beach, Hillsborough, Orange, Duval, Pinellas, Lee, Sarasota, Volusia, plus a "default" fallback.
+**Why first**: Every later feature (document templates, email notifications, letterhead) needs firm info from the database, not local state.
 
-**2. Enhance the Comment Letter HTML builder (`src/components/CommentLetterExport.tsx`)**
+- Create a `firm_settings` table (single-row, keyed to user/org) with columns: `firm_name`, `license_number`, `email`, `phone`, `address`, `logo_url`, `closing_language`
+- Add RLS: authenticated users can read/update their own firm row
+- Update `src/pages/Settings.tsx` to load/save firm settings from the database instead of local state
+- Update `CommentLetterExport.tsx` to pull firm info from the DB for letterhead
 
-Update `buildLetterHTML` to consume the county config and conditionally render:
-- **County-specific amendment citations** in each finding (e.g., "Per Miami-Dade County Amendment to FBC 2023 §1626.1")
-- **Product approval table** — HVHZ counties get a table listing required NOA numbers; non-HVHZ counties reference FL# approvals
-- **Supplemental sections** based on county flags:
-  - Wind Mitigation Summary (all counties, enhanced for HVHZ)
-  - Flood Zone Compliance Statement (coastal counties)
-  - Threshold Building Disclosure (projects over the threshold)
-  - Energy Code Compliance Path (varies: prescriptive vs. performance)
-- **County building department addressee** in the letter header
-- **County-specific closing language** referencing local ordinances
+**Files**: migration SQL, `src/hooks/useFirmSettings.ts` (new), `src/pages/Settings.tsx` (edit), `src/components/CommentLetterExport.tsx` (edit)
 
-**3. Update the AI edge function prompts (`supabase/functions/ai/index.ts`)**
+---
 
-Enhance the `plan_review_check` and `plan_review_check_visual` system prompts to:
-- Receive the county config as context so findings reference the correct local amendments
-- Flag which findings need county-specific product approval references
-- Add a `county_amendment_ref` field to each finding for the specific local code section
+### Phase 2: Auto-Status Progression
 
-Add a new tool parameter `county_amendment_ref` (optional string) to the `PLAN_REVIEW_TOOL` schema.
+**Why second**: Foundation for all downstream automation (notifications, deadlines, audit trail).
 
-**4. Add a "Document Package" export option**
+- Create a database trigger function `auto_advance_project_status` that fires on:
+  - `plan_reviews` INSERT → set project to `plan_review`
+  - `plan_reviews` UPDATE where `ai_check_status = 'complete'` → set project to `comments_sent`
+  - `inspections` INSERT → set project to `inspection_scheduled`
+  - `inspections` UPDATE where `result = 'pass'` and `certificate_issued = true` → set project to `certificate_issued`
+- Add frontend toast notifications when status auto-advances
+- Update `ProjectDetail.tsx` to show the auto-progression in the activity feed
 
-Create a new `CountyDocumentPackage` component that generates multiple documents in one click based on what the county needs:
-- Comment Letter (existing, enhanced)
-- Product Approval Checklist (HVHZ counties)
-- Private Provider Notice form reference
-- Inspection Readiness Packet
+**Files**: migration SQL (trigger + function), `src/pages/ProjectDetail.tsx` (minor edit for toast on status change)
 
-A dropdown menu on the export button lets users pick individual docs or "Full County Package."
+---
 
-**5. Show county requirements in the review UI**
+### Phase 3: Audit Trail on Finding Status Changes
 
-In `PlanReviewDetail.tsx`, add a small info panel (collapsible) showing "County Requirements for [X]" — listing the specific standards, amendment references, and submission notes so the reviewer knows what to look for before they even start.
+**Why third**: Legal compliance for F.S. 553.791 — every finding change must be timestamped.
 
-### Files to create/edit
-- **Create**: `src/lib/county-requirements.ts` — county config registry
-- **Edit**: `src/components/CommentLetterExport.tsx` — consume county config, add supplemental sections
-- **Edit**: `supabase/functions/ai/index.ts` — add `county_amendment_ref` to tool schema, enrich prompts with county context
-- **Edit**: `src/pages/PlanReviewDetail.tsx` — add county requirements info panel, update export section
-- **Create**: `src/components/CountyDocumentPackage.tsx` — multi-document export dropdown
+- Create a `finding_status_history` table: `id`, `plan_review_id`, `finding_index`, `old_status`, `new_status`, `changed_by`, `changed_at`, `note`
+- Add RLS: authenticated can insert (own user), select all
+- Update `PlanReviewDetail.tsx` to write a history row every time a finding status chip is toggled
+- Add a small expandable "History" section under each finding card showing the change log
+
+**Files**: migration SQL, `src/hooks/useFindingHistory.ts` (new), `src/pages/PlanReviewDetail.tsx` (edit), `src/components/FindingCard.tsx` (edit)
+
+---
+
+### Phase 4: Deadline Enforcement & Alert System
+
+**Why fourth**: Depends on auto-status (Phase 2) for accurate status tracking.
+
+- Add a `deadline_alerts` table: `id`, `project_id`, `alert_type` (7-day, 3-day, 1-day, overdue), `triggered_at`, `acknowledged`
+- Create a database function `check_deadline_alerts` that can be called to scan projects and insert alert rows for approaching/passed deadlines
+- On the Dashboard, show a persistent banner when any project is overdue or within 1 day
+- Add a red "OVERDUE" badge to `StatusChip` and auto-hold projects past deadline (set a `hold_reason` field on projects)
+- Update `DeadlineBar` to pulse/animate when critical
+
+**Files**: migration SQL (table + function + `hold_reason` column on projects), `src/components/StatusChip.tsx` (edit), `src/components/DeadlineBar.tsx` (edit), `src/pages/Dashboard.tsx` (edit for banner)
+
+---
+
+### Phase 5: File Versioning for Plan Resubmissions
+
+**Why fifth**: Needed before QC workflow — reviewers need to compare rounds.
+
+- Create a `plan_review_files` table: `id`, `plan_review_id`, `file_path`, `round`, `uploaded_at`, `uploaded_by`
+- Migrate existing `file_urls` array data into this table via a one-time migration
+- Update `NewPlanReviewWizard.tsx` to insert into `plan_review_files` on upload
+- Update `PlanReviewDetail.tsx` to show files grouped by round, with a "Compare Rounds" toggle that shows side-by-side previous round files
+- Preserve Round N-1 findings alongside Round N for diff view
+
+**Files**: migration SQL, `src/hooks/usePlanReviewFiles.ts` (new), `src/components/NewPlanReviewWizard.tsx` (edit), `src/pages/PlanReviewDetail.tsx` (edit)
+
+---
+
+### Phase 6: QC Review Workflow
+
+**Why sixth**: Depends on audit trail (Phase 3) and file versioning (Phase 5).
+
+- Add `qc_status` column to `plan_reviews`: `pending_qc`, `qc_approved`, `qc_rejected` (default `pending_qc`)
+- Add `qc_reviewer_id` and `qc_notes` columns
+- Gate the "Export Comment Letter" and "Send to Contractor" actions behind `qc_status = 'qc_approved'`
+- Add a QC review mode in `PlanReviewDetail.tsx`: senior reviewers see an "Approve / Reject" toolbar at the top
+- Log QC decisions to `activity_log`
+
+**Files**: migration SQL, `src/pages/PlanReviewDetail.tsx` (edit), `src/components/CommentLetterExport.tsx` (edit — disable if not QC approved), `src/components/CountyDocumentPackage.tsx` (edit)
+
+---
+
+### Phase 7: Contractor Notification Pipeline
+
+**Why last**: Depends on firm settings (Phase 1), QC gate (Phase 6), and document generation being complete.
+
+- Set up email infrastructure using Lovable Cloud email tools
+- Create a `send-comment-letter` edge function that:
+  - Accepts `plan_review_id`
+  - Fetches the project, contractor, findings, and firm settings
+  - Generates the comment letter HTML (reusing `buildLetterHTML` logic)
+  - Sends to the contractor's email address
+  - Logs to `activity_log` with event_type `comments_sent`
+- Add a "Send to Contractor" button in the export dropdown (gated behind QC approval from Phase 6)
+- Show delivery status in the activity feed
+
+**Files**: edge function `supabase/functions/send-comment-letter/index.ts` (new), `src/pages/PlanReviewDetail.tsx` (edit — add send button), email infrastructure setup
+
+---
+
+### Implementation Approach
+
+Each phase will be implemented fully — database migration, hooks, UI — before moving to the next. After completing each phase, I will verify the build succeeds and the feature integrates with prior phases before proceeding.
+
+Total: 7 sequential phases, approximately 15 files created/edited, 7 database migrations.
+
