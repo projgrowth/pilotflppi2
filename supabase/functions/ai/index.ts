@@ -183,6 +183,7 @@ const PLAN_REVIEW_TOOL = {
               description: { type: "string" },
               recommendation: { type: "string" },
               confidence: { type: "string", enum: ["verified", "likely", "advisory"] },
+              county_amendment_ref: { type: "string", description: "Specific county amendment reference if county_specific is true (e.g., 'Miami-Dade Sec. 8A', 'Broward County Amendment to FBC Ch. 17')" },
               markup: {
                 type: "object",
                 properties: {
