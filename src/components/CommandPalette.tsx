@@ -11,26 +11,26 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import {
-  LayoutDashboard, FolderKanban, FileSearch, ClipboardCheck,
-  Clock, Sparkles, Building2, Radar, Users, FileText, Settings,
-  Search,
+  LayoutDashboard, FolderKanban, ClipboardCheck,
+  Building2, Radar, Users, Settings,
+  Sparkles,
 } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { label: "Projects", path: "/projects", icon: FolderKanban },
-  { label: "Plan Review", path: "/plan-review", icon: FileSearch },
   { label: "Inspections", path: "/inspections", icon: ClipboardCheck },
-  { label: "Deadlines", path: "/deadlines", icon: Clock },
-  { label: "AI Briefing", path: "/ai-briefing", icon: Sparkles },
-  { label: "Milestone Radar", path: "/milestone-radar", icon: Building2 },
-  { label: "Lead Radar", path: "/lead-radar", icon: Radar },
   { label: "Contractors", path: "/contractors", icon: Users },
-  { label: "Documents", path: "/documents", icon: FileText },
+  { label: "Lead Radar", path: "/lead-radar", icon: Radar },
+  { label: "Milestone Radar", path: "/milestone-radar", icon: Building2 },
   { label: "Settings", path: "/settings", icon: Settings },
 ];
 
-export function CommandPalette() {
+interface CommandPaletteProps {
+  onOpenAI?: () => void;
+}
+
+export function CommandPalette({ onOpenAI }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const { data: projects } = useProjects();
@@ -70,6 +70,18 @@ export function CommandPalette() {
             </CommandItem>
           ))}
         </CommandGroup>
+
+        {onOpenAI && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Tools">
+              <CommandItem onSelect={() => { onOpenAI(); setOpen(false); }}>
+                <Sparkles className="mr-2 h-4 w-4 text-muted-foreground" />
+                AI Assistant
+              </CommandItem>
+            </CommandGroup>
+          </>
+        )}
 
         {recentProjects.length > 0 && (
           <>

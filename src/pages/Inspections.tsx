@@ -10,7 +10,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
-import { ClipboardCheck, Video, ChevronLeft, ChevronRight, Loader2, CheckCircle2, FileText } from "lucide-react";
+import { ScheduleInspectionDialog } from "@/components/ScheduleInspectionDialog";
+import { ClipboardCheck, Video, ChevronLeft, ChevronRight, Loader2, CheckCircle2, FileText, Plus } from "lucide-react";
 import { format, startOfWeek, addDays, isSameDay } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -89,6 +90,7 @@ export default function Inspections() {
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
   const [inspectionNotes, setInspectionNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
@@ -138,7 +140,15 @@ export default function Inspections() {
 
   return (
     <div className="p-8 md:p-10 max-w-7xl">
-      <PageHeader title="Inspections" />
+      <PageHeader
+        title="Inspections"
+        actions={
+          <Button className="bg-accent text-accent-foreground hover:bg-accent/90" onClick={() => setScheduleOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" /> Schedule Inspection
+          </Button>
+        }
+      />
+      <ScheduleInspectionDialog open={scheduleOpen} onOpenChange={setScheduleOpen} />
 
       {/* Week navigation */}
       <div className="mb-4 flex items-center gap-3">

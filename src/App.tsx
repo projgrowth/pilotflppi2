@@ -10,15 +10,11 @@ import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Projects from "./pages/Projects";
-import PlanReview from "./pages/PlanReview";
 import PlanReviewDetail from "./pages/PlanReviewDetail";
 import Inspections from "./pages/Inspections";
-import Deadlines from "./pages/Deadlines";
-import AIBriefing from "./pages/AIBriefing";
-import MilestoneRadar from "./pages/MilestoneRadar";
 import LeadRadar from "./pages/LeadRadar";
+import MilestoneRadar from "./pages/MilestoneRadar";
 import Contractors from "./pages/Contractors";
-import Documents from "./pages/Documents";
 import SettingsPage from "./pages/Settings";
 import ProjectDetail from "./pages/ProjectDetail";
 import NotFound from "./pages/NotFound";
@@ -58,16 +54,18 @@ const App = () => (
               <Route path="/projects" element={<Projects />} />
               <Route path="/projects/:id" element={<ProjectDetail />} />
               <Route path="/plan-review/:id" element={<PlanReviewDetail />} />
-              <Route path="/plan-review" element={<PlanReview />} />
               <Route path="/inspections" element={<Inspections />} />
-              <Route path="/deadlines" element={<Deadlines />} />
-              <Route path="/ai-briefing" element={<AIBriefing />} />
-              <Route path="/milestone-radar" element={<MilestoneRadar />} />
               <Route path="/lead-radar" element={<LeadRadar />} />
+              <Route path="/milestone-radar" element={<MilestoneRadar />} />
               <Route path="/contractors" element={<Contractors />} />
-              <Route path="/documents" element={<Documents />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
+
+            {/* Redirects for removed routes */}
+            <Route path="/deadlines" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/plan-review" element={<Navigate to="/projects" replace />} />
+            <Route path="/documents" element={<Navigate to="/projects" replace />} />
+            <Route path="/ai-briefing" element={<Navigate to="/dashboard" replace />} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>

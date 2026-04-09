@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { useContractors } from "@/hooks/useContractors";
+import { useProjects } from "@/hooks/useProjects";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
-import { Users, Pencil, Trash2 } from "lucide-react";
+import { Users, Pencil, Trash2, ChevronRight, FolderKanban, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -27,9 +29,13 @@ type ContractorForm = z.infer<typeof contractorSchema>;
 
 export default function Contractors() {
   const { data: contractors, isLoading } = useContractors();
+  const { data: projects } = useProjects();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const form = useForm<ContractorForm>({
     resolver: zodResolver(contractorSchema),
@@ -80,11 +86,16 @@ export default function Contractors() {
     queryClient.invalidateQueries({ queryKey: ["contractors"] });
   };
 
-  const deleteContractor = async (id: string) => {
-    const { error } = await supabase.from("contractors").delete().eq("id", id);
+  const getLinkedProjects = (contractorId: string) =>
+    (projects || []).filter((p) => p.contractor_id === contractorId);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const { error } = await supabase.from("contractors").delete().eq("id", deleteTarget.id);
     if (error) { toast.error(error.message); return; }
     toast.success("Contractor deleted");
     queryClient.invalidateQueries({ queryKey: ["contractors"] });
+    setDeleteTarget(null);
   };
 
   return (
@@ -118,34 +129,82 @@ export default function Contractors() {
             onAction={openAdd}
           />
         ) : (
-          <div className="divide-y">
-            {(contractors || []).map((c) => (
-              <div key={c.id} className="flex items-center gap-4 px-5 py-4">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-                  {c.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{c.name}</p>
-                  <p className="text-xs text-muted-foreground font-mono">{c.license_number || "No license"}</p>
-                </div>
-                <span className="hidden sm:inline text-xs text-muted-foreground">{c.email || "—"}</span>
-                <span className="hidden md:inline text-xs text-muted-foreground">{c.phone || "—"}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-muted-foreground">Portal</span>
-                  <Switch checked={c.portal_access} onCheckedChange={() => togglePortal(c.id, c.portal_access)} />
-                </div>
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}>
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteContractor(c.id)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
+          <>
+            {/* Column headers */}
+            <div className="hidden md:grid grid-cols-[40px_1fr_140px_140px_100px_80px_80px] gap-4 px-5 py-3 text-[11px] uppercase tracking-widest text-muted-foreground font-semibold border-b bg-muted/20">
+              <span />
+              <span>Company</span>
+              <span>Email</span>
+              <span>Phone</span>
+              <span>Portal</span>
+              <span />
+              <span />
+            </div>
+            <div className="divide-y">
+              {(contractors || []).map((c) => {
+                const linked = getLinkedProjects(c.id);
+                const isExpanded = expandedId === c.id;
+                return (
+                  <div key={c.id}>
+                    <div
+                      className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-muted/30 transition-colors"
+                      onClick={() => setExpandedId(isExpanded ? null : c.id)}
+                    >
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground shrink-0">
+                        {c.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{c.name}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{c.license_number || "No license"}</p>
+                      </div>
+                      <span className="hidden sm:inline text-xs text-muted-foreground truncate max-w-[140px]">{c.email || "—"}</span>
+                      <span className="hidden md:inline text-xs text-muted-foreground">{c.phone || "—"}</span>
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <span className="text-[10px] text-muted-foreground">Portal</span>
+                        <Switch checked={c.portal_access} onCheckedChange={() => togglePortal(c.id, c.portal_access)} />
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); openEdit(c); }}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: c.id, name: c.name }); }}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <ChevronRight className={`h-4 w-4 text-muted-foreground/40 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                    </div>
+                    {/* Expanded: linked projects */}
+                    {isExpanded && (
+                      <div className="px-5 pb-4 pl-[72px]">
+                        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                          Linked Projects ({linked.length})
+                        </p>
+                        {linked.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">No projects linked to this contractor</p>
+                        ) : (
+                          <div className="space-y-1">
+                            {linked.map((p) => (
+                              <div
+                                key={p.id}
+                                onClick={() => navigate(`/projects/${p.id}`)}
+                                className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-muted/40 cursor-pointer transition-colors"
+                              >
+                                <FolderKanban className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className="text-sm truncate flex-1">{p.name}</span>
+                                <span className="text-[10px] text-muted-foreground capitalize">{p.status.replace(/_/g, " ")}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </Card>
 
+      {/* Add/Edit dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -189,6 +248,29 @@ export default function Contractors() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive" /> Delete Contractor
+            </DialogTitle>
+            <DialogDescription>
+              {deleteTarget && (() => {
+                const linked = getLinkedProjects(deleteTarget.id);
+                return linked.length > 0
+                  ? `"${deleteTarget.name}" is linked to ${linked.length} project${linked.length > 1 ? "s" : ""}. Deleting will remove this association.`
+                  : `Are you sure you want to delete "${deleteTarget.name}"?`;
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDelete}>Delete</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
