@@ -1,87 +1,47 @@
 
 
-# Site Plan Completeness & Missing Information Detection
+# AI-Powered Zoning Auto-Fill from Site Plans
 
-## Problem
+## Overview
 
-Building officials reject submittals when required information is missing from plans — not just code violations. The current system finds code compliance issues but doesn't systematically verify that all required plan sheet content, notes, details, and site plan elements are present. A building official will reject a package outright if the site plan is missing a drainage plan, or if there's no survey, or if required notes are absent.
+Add a file upload button to the Zoning tab that lets users upload a site plan image/PDF. The AI (Gemini vision) analyzes it and extracts zoning data (lot area, setbacks, zoning district, building footprint, stories, etc.), pre-filling the form fields.
 
-## Solution
+## Changes
 
-Add two new capabilities:
+### 1. New AI action: `extract_zoning_data` (edge function)
 
-### 1. Site Plan Completeness Checklist (new component)
+Add to `supabase/functions/ai/index.ts`:
+- New system prompt instructing Gemini to extract all `ZoningData` fields from a site plan image (lot area, footprint, setbacks, zoning district, occupancy groups, parking, etc.)
+- New tool schema matching the `ZoningData` interface for structured extraction
+- Register it as a multimodal action so it uses vision with `gemini-2.5-pro`
 
-A comprehensive "Plan Completeness" panel in the review workspace that checks whether required elements exist on the plans. This covers what building officials look for before they even start a code review:
+### 2. Update `ZoningAnalysisPanel.tsx`
 
-**Site Plan Required Elements:**
-- Legal description and survey data
-- Property boundaries with dimensions
-- Setback lines shown and dimensioned
-- Existing/proposed structures with distances to property lines
-- Parking layout with ADA spaces, counts, and dimensions
-- Driveway locations and sight triangles
-- Stormwater/drainage plan or reference
-- Utility connections (water, sewer, electric)
-- Easements and right-of-way lines
-- Tree survey / landscape plan (if required)
-- Flood zone designation and BFE (if applicable)
-- CCCL line (if coastal)
-- Trash enclosure location
-- Fire department access and hydrant locations
+Add an "AI Auto-Fill" section at the top of the form card:
+- File input accepting images (PNG/JPG) and PDFs
+- For PDFs: convert first page to image using pdfjs-dist (already in the project) before sending
+- Upload button with loading state ("Analyzing site plan...")
+- On success: merge extracted values into the form state (only overwrite fields that the AI returned non-null values for)
+- Toast showing how many fields were extracted
+- Visual indicator showing which fields were AI-populated vs manually entered
 
-**General Plan Completeness:**
-- Title block complete (project name, address, architect/engineer, seal, date)
-- Index of drawings
-- Code summary table (occupancy, construction type, area, height, sprinkler)
-- Life safety plan (exit paths, occupant loads, exit widths)
-- Structural notes (design loads, wind speed, exposure category)
-- Energy compliance form (Res: Form 402 or ComCheck, Comm: COMcheck)
-- Product approval numbers on specs (NOA/FL#)
-- Threshold building designation (if >3 stories or >50ft or >5000sqft per floor)
-- Special inspector requirements noted
-- FBC edition stated on plans
+### 3. File flow
 
-### 2. Enhanced AI Prompt for Missing Information Detection
+```text
+User uploads site plan image/PDF
+  → (If PDF, render page 1 to canvas → base64)
+  → Call supabase.functions.invoke("ai", { action: "extract_zoning_data", payload: { images: [base64] } })
+  → Parse structured response
+  → Merge into ZoningData state
+  → Compliance checks auto-recalculate
+```
 
-Update the AI review prompts to explicitly look for **missing information** — not just code violations. Add a `"missing_info"` category to findings so the system flags sheets that are entirely absent or elements that should appear but don't.
-
-## Files Changed
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/components/SitePlanChecklist.tsx` | **New** — Comprehensive completeness checklist with auto-detection from AI findings |
-| `src/pages/PlanReviewDetail.tsx` | Add "Completeness" as a new right-panel mode |
-| `supabase/functions/ai/index.ts` | Add missing-info detection instructions to both plan review prompts |
-| `src/components/DisciplineChecklist.tsx` | Expand site discipline items to cover drainage, utilities, landscape, fire access |
-| `src/lib/county-utils.ts` | Add `SITE_PLAN_REQUIRED_ELEMENTS` constant for reuse |
+| `supabase/functions/ai/index.ts` | Add `extract_zoning_data` prompt, tool schema, register as multimodal |
+| `src/components/ZoningAnalysisPanel.tsx` | Add file upload UI, AI extraction handler, merge logic |
 
-## AI Prompt Enhancement
-
-The AI prompts will be updated to include instructions like:
-
-> **MISSING INFORMATION CHECK (Critical for Private Providers):**
-> Beyond code violations, flag any of the following that are MISSING from the plans:
-> - No site plan sheet at all
-> - Site plan missing property boundaries, setbacks, or parking layout
-> - No code summary table (occupancy, construction type, allowable area)
-> - No life safety / egress plan
-> - No structural design criteria (wind speed, exposure, soil bearing)
-> - No energy compliance documentation
-> - Missing sealed drawings or engineer of record
-> - No product approval references on specifications
-> - No flood zone or wind speed designation
->
-> Use severity "critical" for missing sheets/information that would cause immediate rejection by a building official. Use "major" for incomplete information that needs supplementation.
-
-## Completeness Panel Behavior
-
-- Each item shows a checkbox with three states: Present / Missing / N/A
-- AI findings auto-populate "Missing" status when the AI flags missing info
-- Reviewer can manually mark items
-- A completion percentage bar shows overall readiness
-- Items marked "Missing" generate a summary that can be exported as a deficiency notice to the applicant
-- County-specific items (CCCL, HVHZ NOA list, threshold building) conditionally appear based on project county
-
-This ensures your review package is airtight before a building official ever sees it.
+No database changes needed — zoning data is already stored as JSONB.
 
