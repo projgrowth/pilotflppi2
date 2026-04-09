@@ -47,7 +47,10 @@ const ZONING_FIELDS: (keyof ZoningData)[] = [
 ];
 
 export function ZoningAnalysisPanel({ projectId, initialData, onSaved }: ZoningAnalysisPanelProps) {
-  const [z, setZ] = useState<ZoningData>(initialData ?? EMPTY_ZONING);
+  const [z, setZ] = useState<ZoningData>(() => {
+    const base = initialData ?? EMPTY_ZONING;
+    return { ...base, occupancy_groups: base.occupancy_groups ?? [] };
+  });
   const [checks, setChecks] = useState<ZoningCheck[]>([]);
   const [saving, setSaving] = useState(false);
   const [extracting, setExtracting] = useState(false);

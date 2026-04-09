@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Users, MapPin, Plus, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/PageHeader";
 
 const defaultJurisdictions = [
   "City of Miami", "City of Miami Beach", "City of Fort Lauderdale", "City of Boca Raton",
@@ -124,8 +125,8 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="p-6 md:p-8 max-w-4xl">
-      <h1 className="text-2xl font-medium mb-6">Settings</h1>
+    <div className="p-8 md:p-10 max-w-4xl">
+      <PageHeader title="Settings" />
 
       <Tabs defaultValue="profile">
         <TabsList>
