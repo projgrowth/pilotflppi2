@@ -25,7 +25,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, ClipboardCheck, Activity, Upload, Loader2, Download, Building2, Pencil, CalendarPlus } from "lucide-react";
+import { FileText, ClipboardCheck, Activity, Upload, Loader2, Download, Building2, Pencil, CalendarPlus, Receipt } from "lucide-react";
+import { InvoiceBillingTab } from "@/components/InvoiceBillingTab";
 import { ZoningAnalysisPanel } from "@/components/ZoningAnalysisPanel";
 import { ZoningData } from "@/lib/zoning-utils";
 import { StatutoryClockCard } from "@/components/StatutoryClockCard";
@@ -367,6 +368,9 @@ export default function ProjectDetail() {
                   <span className="ml-1 text-[10px] bg-accent/15 text-accent rounded-full px-1.5 py-0.5 font-semibold">{findingsCount}</span>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="billing" className="gap-1.5">
+                <Receipt className="h-3.5 w-3.5" />Billing
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="activity">
@@ -519,6 +523,10 @@ export default function ProjectDetail() {
                   )}
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="billing">
+              <InvoiceBillingTab projectId={project.id} contractorId={project.contractor_id} />
             </TabsContent>
           </Tabs>
         </div>
