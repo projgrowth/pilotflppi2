@@ -2,14 +2,10 @@ import { useLocation, Link, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   FolderKanban,
-  FileSearch,
   ClipboardCheck,
-  Clock,
-  Sparkles,
   Building2,
   Radar,
   Users,
-  FileText,
   Settings,
   ChevronRight,
   Menu,
@@ -17,6 +13,7 @@ import {
   Search,
   PanelLeftClose,
   PanelLeftOpen,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -32,23 +29,16 @@ interface NavItem {
   icon: React.ElementType;
 }
 
-const operationsNav: NavItem[] = [
+const coreNav: NavItem[] = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { label: "Projects", path: "/projects", icon: FolderKanban },
-  { label: "Plan Review", path: "/plan-review", icon: FileSearch },
   { label: "Inspections", path: "/inspections", icon: ClipboardCheck },
-  { label: "Deadlines", path: "/deadlines", icon: Clock },
-];
-
-const intelligenceNav: NavItem[] = [
-  { label: "AI Briefing", path: "/ai-briefing", icon: Sparkles },
-  { label: "Milestone Radar", path: "/milestone-radar", icon: Building2 },
-  { label: "Lead Radar", path: "/lead-radar", icon: Radar },
-];
-
-const manageNav: NavItem[] = [
   { label: "Contractors", path: "/contractors", icon: Users },
-  { label: "Documents", path: "/documents", icon: FileText },
+];
+
+const toolsNav: NavItem[] = [
+  { label: "Lead Radar", path: "/lead-radar", icon: Radar },
+  { label: "Milestone Radar", path: "/milestone-radar", icon: Building2 },
   { label: "Settings", path: "/settings", icon: Settings },
 ];
 
@@ -97,7 +87,7 @@ function NavSection({ title, items, onNavigate, collapsed }: { title: string; it
   );
 }
 
-function SidebarContent({ onNavigate, collapsed, setCollapsed }: { onNavigate?: () => void; collapsed?: boolean; setCollapsed?: (v: boolean) => void }) {
+function SidebarContent({ onNavigate, collapsed, setCollapsed, onOpenAI }: { onNavigate?: () => void; collapsed?: boolean; setCollapsed?: (v: boolean) => void; onOpenAI?: () => void }) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
 
@@ -157,14 +147,22 @@ function SidebarContent({ onNavigate, collapsed, setCollapsed }: { onNavigate?: 
 
       {/* Navigation */}
       <div className="flex-1 overflow-y-auto py-2">
-        <NavSection title="Operations" items={operationsNav} onNavigate={onNavigate} collapsed={collapsed} />
-        <NavSection title="Intelligence" items={intelligenceNav} onNavigate={onNavigate} collapsed={collapsed} />
-        <NavSection title="Manage" items={manageNav} onNavigate={onNavigate} collapsed={collapsed} />
+        <NavSection title="Core" items={coreNav} onNavigate={onNavigate} collapsed={collapsed} />
+        <NavSection title="Tools" items={toolsNav} onNavigate={onNavigate} collapsed={collapsed} />
       </div>
 
-      {/* ⌘K hint */}
+      {/* AI Assistant + ⌘K */}
       {!collapsed && (
-        <div className="px-6 pb-2">
+        <div className="px-6 pb-2 space-y-1">
+          {onOpenAI && (
+            <button
+              onClick={() => { onOpenAI(); onNavigate?.(); }}
+              className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-[10px] text-sidebar-foreground/50 hover:text-sidebar-foreground/70 hover:bg-sidebar-accent/30 transition-colors"
+            >
+              <Sparkles className="h-3 w-3" />
+              <span>AI Assistant</span>
+            </button>
+          )}
           <button
             onClick={() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
             className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-[10px] text-sidebar-foreground/40 hover:text-sidebar-foreground/60 hover:bg-sidebar-accent/30 transition-colors"
@@ -173,6 +171,22 @@ function SidebarContent({ onNavigate, collapsed, setCollapsed }: { onNavigate?: 
             <span>Search</span>
             <kbd className="ml-auto text-[9px] bg-sidebar-accent/20 px-1 rounded">⌘K</kbd>
           </button>
+        </div>
+      )}
+
+      {collapsed && onOpenAI && (
+        <div className="flex justify-center mb-2">
+          <Tooltip delayDuration={0}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => { onOpenAI(); onNavigate?.(); }}
+                className="p-2 rounded hover:bg-sidebar-accent/50 text-sidebar-foreground/40 hover:text-sidebar-foreground/70 transition-colors"
+              >
+                <Sparkles className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="text-xs">AI Assistant</TooltipContent>
+          </Tooltip>
         </div>
       )}
 
@@ -223,7 +237,7 @@ function SidebarContent({ onNavigate, collapsed, setCollapsed }: { onNavigate?: 
   );
 }
 
-export function AppSidebar() {
+export function AppSidebar({ onOpenAI }: { onOpenAI?: () => void }) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
@@ -247,7 +261,7 @@ export function AppSidebar() {
         </Button>
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetContent side="left" className="w-[240px] p-0 border-0">
-            <SidebarContent onNavigate={() => setOpen(false)} />
+            <SidebarContent onNavigate={() => setOpen(false)} onOpenAI={onOpenAI} />
           </SheetContent>
         </Sheet>
       </>
@@ -260,7 +274,7 @@ export function AppSidebar() {
         "hidden md:flex shrink-0 h-screen sticky top-0 transition-all duration-200",
         collapsed ? "w-14" : "w-[240px]"
       )}>
-        <SidebarContent collapsed={collapsed} setCollapsed={setCollapsed} />
+        <SidebarContent collapsed={collapsed} setCollapsed={setCollapsed} onOpenAI={onOpenAI} />
       </aside>
     </TooltipProvider>
   );
