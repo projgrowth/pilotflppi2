@@ -17,13 +17,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { PageHeader } from "@/components/PageHeader";
 import {
-  Sparkles, Send, Loader2, Copy, Check,
-  Wind, Upload, ArrowLeft, Mail, Phone,
-  FileDown, Printer, Plus, PanelRightClose, PanelRight,
-  ChevronDown, Info, MapPin,
+  Sparkles, Loader2, Check,
+  Upload, ArrowLeft,
+  PanelRightClose, PanelRight,
 } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import { ReviewTopBar } from "@/components/plan-review/ReviewTopBar";
+import { CountyPanel } from "@/components/plan-review/CountyPanel";
+import { LetterPanel } from "@/components/plan-review/LetterPanel";
 import { cn } from "@/lib/utils";
 import { FindingCard, type Finding } from "@/components/FindingCard";
 import { SeverityDonut } from "@/components/SeverityDonut";
@@ -589,84 +590,25 @@ export default function PlanReviewDetail() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-0px)] overflow-hidden">
-      {/* ── Top Bar ── */}
-      <div className="shrink-0 border-b bg-card px-4 py-2.5">
-        <div className="flex items-center gap-3">
-          {/* Back + Project Name */}
-          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => navigate("/plan-review")}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-semibold truncate">{review.project?.name || "Plan Review"}</h1>
-              <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium capitalize shrink-0">{review.project?.trade_type}</span>
-              {hvhz && (
-                <span className="flex items-center gap-0.5 text-[9px] font-semibold text-destructive shrink-0">
-                  <Wind className="h-3 w-3" /> HVHZ
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-              <span className="truncate">{review.project?.address}</span>
-              <span>{getCountyLabel(county)} County</span>
-              {contractor && <ContractorHoverCard contractor={contractor} />}
-            </div>
-          </div>
-
-          {/* Round dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-accent text-accent-foreground shrink-0">
-                R{review.round}
-                <ChevronDown className="h-3 w-3" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[120px]">
-              {projectRounds.map((round) => (
-                <DropdownMenuItem
-                  key={round.id}
-                  onClick={() => navigate(`/plan-review/${round.id}`)}
-                  className={cn("text-xs", round.id === review.id && "bg-accent/10 font-medium")}
-                >
-                  R{round.round}
-                  {round.findingsCount > 0 && (
-                    <span className="ml-auto text-[9px] text-muted-foreground">{round.findingsCount} findings</span>
-                  )}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuItem onClick={createNewRound} className="text-xs text-accent">
-                <Plus className="h-3 w-3 mr-1" /> New Round
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Deadline ring */}
-          <DeadlineRing daysElapsed={21 - daysLeft} totalDays={21} size={30} />
-
-          {/* Primary action — with inline feedback */}
-          <Button
-            size="sm"
-            onClick={() => runAICheck(review)}
-            disabled={aiRunning}
-            className={cn(
-              "h-8 text-xs shrink-0 transition-all",
-              aiCompleteFlash !== null
-                ? "bg-[hsl(var(--success))] text-[hsl(var(--success-foreground))]"
-                : !hasFindings && !aiRunning
-                ? "bg-accent text-accent-foreground hover:bg-accent/90 animate-pulse"
-                : "bg-accent text-accent-foreground hover:bg-accent/90"
-            )}
-          >
-            {aiCompleteFlash !== null ? (
-              <><Check className="h-3.5 w-3.5 mr-1.5" /> ✓ {aiCompleteFlash} findings</>
-            ) : aiRunning ? (
-              <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Analyzing...</>
-            ) : (
-              <><Sparkles className="h-3.5 w-3.5 mr-1.5" /> {hasFindings ? "Re-Analyze" : "Run AI Check"}</>
-            )}
-          </Button>
-        </div>
-      </div>
+      <ReviewTopBar
+        projectName={review.project?.name || ""}
+        tradeType={review.project?.trade_type || ""}
+        address={review.project?.address || ""}
+        county={county}
+        hvhz={hvhz}
+        contractor={contractor}
+        round={review.round}
+        reviewId={review.id}
+        daysLeft={daysLeft}
+        aiRunning={aiRunning}
+        aiCompleteFlash={aiCompleteFlash}
+        hasFindings={hasFindings}
+        rounds={projectRounds}
+        onBack={() => navigate("/plan-review")}
+        onRunAICheck={() => runAICheck(review)}
+        onNavigateRound={(rid) => navigate(`/plan-review/${rid}`)}
+        onNewRound={createNewRound}
+      />
 
       {/* ── AI Scanning Overlay ── */}
       {aiRunning && (
