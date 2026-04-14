@@ -163,16 +163,20 @@ export default function Analytics() {
         <Card className="shadow-subtle">
           <CardContent className="p-5">
             <h3 className="text-sm font-semibold mb-1">Review Pipeline Funnel</h3>
-            <p className="text-[10px] text-fpp-gray-400 mb-4">Narrow bars show where projects are getting stuck</p>
+            <p className="text-[10px] text-fpp-gray-400 mb-4">Current project counts by pipeline stage</p>
             <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={[
-                { stage: "Intake", count: 25 },
-                { stage: "AI Scan", count: 22 },
-                { stage: "Review", count: 18 },
-                { stage: "Comments", count: 14 },
-                { stage: "Resubmit", count: 8 },
-                { stage: "Approved", count: 5 },
-              ]}>
+              <BarChart data={(() => {
+                const stageCounts: Record<string, number> = { Intake: 0, "Plan Review": 0, "Comments Sent": 0, Resubmitted: 0, Approved: 0, "Permit+": 0 };
+                (projects || []).forEach((p) => {
+                  if (p.status === "intake") stageCounts["Intake"]++;
+                  else if (p.status === "plan_review") stageCounts["Plan Review"]++;
+                  else if (p.status === "comments_sent") stageCounts["Comments Sent"]++;
+                  else if (p.status === "resubmitted") stageCounts["Resubmitted"]++;
+                  else if (p.status === "approved") stageCounts["Approved"]++;
+                  else stageCounts["Permit+"]++;
+                });
+                return Object.entries(stageCounts).map(([stage, count]) => ({ stage, count }));
+              })()}>
                 <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip />
