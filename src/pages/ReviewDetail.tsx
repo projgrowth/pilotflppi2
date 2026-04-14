@@ -48,7 +48,7 @@ export default function ReviewDetail() {
 
   // Auto-redirect to the functional plan review page if a plan_review exists
   const [redirectChecked, setRedirectChecked] = useState(false);
-  useState(() => {
+  useEffect(() => {
     if (!projectId) return;
     supabase
       .from("plan_reviews")
@@ -63,7 +63,7 @@ export default function ReviewDetail() {
           setRedirectChecked(true);
         }
       });
-  });
+  }, [projectId, navigate]);
 
   const [severityFilter, setSeverityFilter] = useState("all");
   const [confFilter, setConfFilter] = useState("all");
