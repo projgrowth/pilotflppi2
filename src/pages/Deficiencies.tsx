@@ -97,7 +97,7 @@ export default function Deficiencies() {
             <SelectItem value="admin">Admin</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={buildingType} onValueChange={(v) => setBuildingType(v as any)}>
+        <Select value={buildingType} onValueChange={(v) => setBuildingType(v as "all" | "residential" | "commercial")}>
           <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Types</SelectItem>
@@ -124,7 +124,7 @@ export default function Deficiencies() {
               <div className="flex items-start justify-between">
                 <span className="font-mono text-sm font-semibold text-foreground">FBC {d.fbc_section}</span>
                 <div className="flex items-center gap-2">
-                  <SeverityBadge level={(d.severity as any) || "admin"} />
+                  <SeverityBadge level={(d.severity as "critical" | "major" | "minor" | "admin") || "admin"} />
                   <span className="text-[10px] font-mono uppercase bg-muted px-2 py-0.5 rounded border text-fpp-gray-600">{d.discipline}</span>
                 </div>
               </div>
