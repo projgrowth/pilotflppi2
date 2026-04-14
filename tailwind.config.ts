@@ -33,6 +33,7 @@ export default {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+          bg: "hsl(var(--destructive-bg))",
         },
         muted: {
           DEFAULT: "hsl(var(--muted))",
@@ -49,10 +50,12 @@ export default {
         warning: {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
+          bg: "hsl(var(--warning-bg))",
         },
         success: {
           DEFAULT: "hsl(var(--success))",
           foreground: "hsl(var(--success-foreground))",
+          bg: "hsl(var(--success-bg))",
         },
         popover: {
           DEFAULT: "hsl(var(--popover))",

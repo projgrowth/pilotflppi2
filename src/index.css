@@ -25,6 +25,12 @@
     --status-admin: 209 37% 54%;
     --status-pass: 149 47% 33%;
 
+    /* Light status backgrounds */
+    --success-bg: 149 60% 95%;
+    --warning-bg: 43 100% 95%;
+    --destructive-bg: 1 65% 95%;
+    --admin-bg: 209 60% 95%;
+
     /* Confidence colors */
     --conf-high: 149 47% 33%;
     --conf-medium: 43 72% 46%;
@@ -111,6 +117,11 @@
     --warning-foreground: 0 0% 100%;
     --success: 149 47% 33%;
     --success-foreground: 0 0% 100%;
+
+    --success-bg: 149 40% 15%;
+    --warning-bg: 43 60% 15%;
+    --destructive-bg: 1 45% 15%;
+    --admin-bg: 209 40% 15%;
     --border: 210 53% 18%;
     --input: 210 53% 18%;
     --ring: 37 66% 47%;
