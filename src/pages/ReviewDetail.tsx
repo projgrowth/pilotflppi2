@@ -46,6 +46,25 @@ export default function ReviewDetail() {
 
   const project = projects?.find((p) => p.id === projectId);
 
+  // Auto-redirect to the functional plan review page if a plan_review exists
+  const [redirectChecked, setRedirectChecked] = useState(false);
+  useState(() => {
+    if (!projectId) return;
+    supabase
+      .from("plan_reviews")
+      .select("id")
+      .eq("project_id", projectId)
+      .order("round", { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          navigate(`/plan-review/${data[0].id}`, { replace: true });
+        } else {
+          setRedirectChecked(true);
+        }
+      });
+  });
+
   const [severityFilter, setSeverityFilter] = useState("all");
   const [confFilter, setConfFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("active");
