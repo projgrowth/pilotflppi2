@@ -88,6 +88,11 @@ export default {
         "status-minor": "hsl(var(--status-minor))",
         "status-admin": "hsl(var(--status-admin))",
         "status-pass": "hsl(var(--status-pass))",
+        "admin-bg": "hsl(var(--admin-bg))",
+      },
+      fontSize: {
+        caption: ["0.5rem", { lineHeight: "0.75rem" }],
+        "2xs": ["0.625rem", { lineHeight: "0.875rem" }],
       },
       borderRadius: {
         lg: "var(--radius)",
