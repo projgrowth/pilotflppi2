@@ -2,13 +2,10 @@ import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useUpdateInvoice, useDeleteInvoice, useInvoiceLineItems, Invoice } from "@/hooks/useInvoices";
 import { format } from "date-fns";
-import { Loader2, Send, CheckCircle2, Ban, DollarSign, Unlock, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { Send, CheckCircle2, Ban, DollarSign, Unlock, Trash2 } from "lucide-react";
 
 export function InvoiceEditor({ invoice, open, onOpenChange }: { invoice: Invoice; open: boolean; onOpenChange: (o: boolean) => void }) {
   const updateMutation = useUpdateInvoice();
