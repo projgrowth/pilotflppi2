@@ -395,7 +395,7 @@ export default function Dashboard() {
   const approvalDiff = (approvalsData?.thisWeek ?? 0) - (approvalsData?.lastWeek ?? 0);
 
   return (
-    <div className="p-8 md:p-10 max-w-7xl">
+    <div className="p-4 sm:p-8 md:p-10 max-w-7xl">
       {/* Greeting */}
       <div className="mb-8">
         <h1 className="text-2xl font-display font-semibold tracking-tight text-foreground">
@@ -453,7 +453,7 @@ export default function Dashboard() {
       </div>
 
       {/* Revenue KPI Cards */}
-      <div className="grid grid-cols-3 gap-5 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-8">
         <RevenuKpi
           icon={TrendingUp}
           iconColor="#2E7D52"

@@ -1,9 +1,13 @@
 import { useState, useMemo } from "react";
 import { useDeficiencies } from "@/hooks/useReviewData";
+import { useProjects } from "@/hooks/useProjects";
+import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
 import SeverityBadge from "@/components/shared/SeverityBadge";
 import FppEmptyState from "@/components/shared/FppEmptyState";
 import { Search, Copy, PlusCircle, ExternalLink, ChevronDown, BookOpen } from "lucide-react";
@@ -11,10 +15,13 @@ import { toast } from "sonner";
 
 export default function Deficiencies() {
   const { data: deficiencies, isLoading } = useDeficiencies();
+  const { data: projects } = useProjects();
   const [search, setSearch] = useState("");
   const [discipline, setDiscipline] = useState("all");
   const [severity, setSeverity] = useState("all");
+  const [buildingType, setBuildingType] = useState<"all" | "residential" | "commercial">("all");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [addingToReview, setAddingToReview] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     return (deficiencies || []).filter((d) => {
@@ -22,9 +29,12 @@ export default function Deficiencies() {
       const matchSearch = !q || d.fbc_section.toLowerCase().includes(q) || d.title.toLowerCase().includes(q) || (d.description || "").toLowerCase().includes(q) || (d.standard_comment_language || "").toLowerCase().includes(q);
       const matchDisc = discipline === "all" || d.discipline === discipline;
       const matchSev = severity === "all" || d.severity === severity;
-      return matchSearch && matchDisc && matchSev;
+      // Simple residential/commercial filter based on FBC section prefix
+      const isResidential = d.fbc_section.startsWith("R") || d.discipline === "energy";
+      const matchType = buildingType === "all" || (buildingType === "residential" ? isResidential : !isResidential);
+      return matchSearch && matchDisc && matchSev && matchType;
     });
-  }, [deficiencies, search, discipline, severity]);
+  }, [deficiencies, search, discipline, severity, buildingType]);
 
   const handleCopy = async (text: string, id: string) => {
     await navigator.clipboard.writeText(text);
@@ -33,15 +43,34 @@ export default function Deficiencies() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleAddToReview = async (deficiency: typeof filtered[0], projectId: string) => {
+    const { error } = await supabase.from("review_flags").insert({
+      project_id: projectId,
+      fbc_section: deficiency.fbc_section,
+      description: deficiency.standard_comment_language || deficiency.description,
+      severity: deficiency.severity,
+      status: "active",
+    });
+    if (error) {
+      toast.error("Failed to add flag: " + error.message);
+    } else {
+      toast.success(`Added FBC ${deficiency.fbc_section} to project review`);
+      setAddingToReview(null);
+    }
+  };
+
   const pinColor: Record<string, string> = {
     critical: "#D63230", major: "#E8831A", minor: "#D4A017", admin: "#5B8DB8",
   };
 
   return (
     <div className="page-enter space-y-6">
-      <div>
-        <h1 className="font-display text-3xl text-foreground">Deficiency Library</h1>
-        <p className="text-sm text-fpp-gray-600 mt-1">Pre-written Florida Building Code deficiencies with professional comment language. Click any item to copy comment text or add to an active review.</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="font-display text-3xl text-foreground">Deficiency Library</h1>
+          <p className="text-sm text-fpp-gray-600 mt-1">Pre-written Florida Building Code deficiencies with professional comment language.</p>
+        </div>
+        <Badge variant="secondary" className="text-xs font-mono">{filtered.length} / {deficiencies?.length || 0}</Badge>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -68,7 +97,14 @@ export default function Deficiencies() {
             <SelectItem value="admin">Admin</SelectItem>
           </SelectContent>
         </Select>
-        <span className="text-xs font-mono text-fpp-gray-400">{filtered.length} deficiencies shown</span>
+        <Select value={buildingType} onValueChange={(v) => setBuildingType(v as any)}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="residential">Residential</SelectItem>
+            <SelectItem value="commercial">Commercial</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {isLoading ? (
@@ -114,9 +150,34 @@ export default function Deficiencies() {
                   <Copy className="h-3 w-3 mr-1" />
                   {copiedId === d.id ? "Copied ✓" : "Copy Comment Text"}
                 </Button>
-                <Button variant="outline" size="sm" className="text-xs h-7">
-                  <PlusCircle className="h-3 w-3 mr-1" /> Add to Active Review
-                </Button>
+
+                <Popover open={addingToReview === d.id} onOpenChange={(open) => setAddingToReview(open ? d.id : null)}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="text-xs h-7">
+                      <PlusCircle className="h-3 w-3 mr-1" /> Add to Active Review
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-3" align="start">
+                    <p className="text-xs font-semibold mb-2">Select project:</p>
+                    <div className="space-y-1 max-h-48 overflow-auto">
+                      {(projects || []).map((p) => (
+                        <Button
+                          key={p.id}
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-start text-xs h-7"
+                          onClick={() => handleAddToReview(d, p.id)}
+                        >
+                          {p.name}
+                        </Button>
+                      ))}
+                      {(!projects || projects.length === 0) && (
+                        <p className="text-xs text-fpp-gray-400">No projects found</p>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
                 <Button variant="ghost" size="sm" className="text-xs h-7">
                   <ExternalLink className="h-3 w-3 mr-1" /> View in FBC
                 </Button>
