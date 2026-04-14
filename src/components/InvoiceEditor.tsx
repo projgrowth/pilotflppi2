@@ -20,7 +20,7 @@ export function InvoiceEditor({ invoice, open, onOpenChange }: { invoice: Invoic
   const remaining = Number(invoice.total || 0) - Number(invoice.amount_paid || 0);
 
   const handleStatusChange = (newStatus: string) => {
-    const updates: any = { id: invoice.id, status: newStatus };
+    const updates: Partial<Invoice> & { id: string } = { id: invoice.id, status: newStatus };
     if (newStatus === "sent") updates.issued_at = new Date().toISOString();
     if (newStatus === "void") updates.paid_at = null;
     updateMutation.mutate(updates, { onSuccess: () => onOpenChange(false) });
@@ -32,7 +32,7 @@ export function InvoiceEditor({ invoice, open, onOpenChange }: { invoice: Invoic
     const newPaid = Number(invoice.amount_paid || 0) + amount;
     const newStatus = newPaid >= Number(invoice.total) ? "paid" : "partial";
     updateMutation.mutate(
-      { id: invoice.id, amount_paid: newPaid, status: newStatus, paid_at: newPaid >= Number(invoice.total) ? new Date().toISOString() : null } as any,
+      { id: invoice.id, amount_paid: newPaid, status: newStatus, paid_at: newPaid >= Number(invoice.total) ? new Date().toISOString() : null },
       { onSuccess: () => { setPaymentAmount(""); onOpenChange(false); } }
     );
   };

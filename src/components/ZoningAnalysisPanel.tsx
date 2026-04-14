@@ -78,7 +78,7 @@ export function ZoningAnalysisPanel({ projectId, initialData, onSaved }: ZoningA
     setSaving(true);
     const { error } = await supabase
       .from("projects")
-      .update({ zoning_data: z as any })
+      .update({ zoning_data: z as unknown as Record<string, unknown> })
       .eq("id", projectId);
     setSaving(false);
     if (error) {
@@ -138,7 +138,7 @@ export function ZoningAnalysisPanel({ projectId, initialData, onSaved }: ZoningA
             merged.zoning_district = val;
             filled.add(key);
           } else if (typeof val === "number") {
-            (merged as any)[key] = val;
+            (merged as Record<string, unknown>)[key] = val;
             filled.add(key);
           }
         }

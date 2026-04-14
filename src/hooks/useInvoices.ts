@@ -45,7 +45,7 @@ export function useInvoices() {
     queryKey: ["invoices"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("invoices" as any)
+        .from("invoices")
         .select("*, project:projects(name, address), contractor:contractors(name, email)")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -61,7 +61,7 @@ export function useProjectInvoices(projectId: string | undefined) {
     queryKey: ["invoices", "project", projectId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("invoices" as any)
+        .from("invoices")
         .select("*, contractor:contractors(name, email)")
         .eq("project_id", projectId!)
         .order("created_at", { ascending: false });
@@ -77,12 +77,12 @@ export function useInvoiceLineItems(invoiceId: string | undefined) {
     queryKey: ["invoice-line-items", invoiceId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("invoice_line_items" as any)
+        .from("invoice_line_items")
         .select("*")
         .eq("invoice_id", invoiceId!)
         .order("sort_order");
       if (error) throw error;
-      return (data || []) as unknown as InvoiceLineItem[];
+      return (data || []) as InvoiceLineItem[];
     },
     enabled: !!invoiceId,
   });
@@ -110,9 +110,15 @@ export function useCreateInvoice() {
       const total = subtotal + taxAmount;
 
       const { data: inv, error } = await supabase
-        .from("invoices" as any)
+        .from("invoices")
         .insert({
-          ...invoiceData,
+          project_id: invoiceData.project_id,
+          contractor_id: invoiceData.contractor_id ?? null,
+          invoice_number: invoiceData.invoice_number,
+          due_at: invoiceData.due_at ?? null,
+          notes: invoiceData.notes ?? "",
+          tax_rate: taxRate,
+          custom_footer: invoiceData.custom_footer ?? "",
           user_id: user.id,
           subtotal,
           tax_amount: taxAmount,
@@ -123,7 +129,7 @@ export function useCreateInvoice() {
         .single();
       if (error) throw error;
 
-      const invoiceId = (inv as any).id;
+      const invoiceId = inv.id;
       if (line_items.length > 0) {
         const rows = line_items.map((li) => ({
           invoice_id: invoiceId,
@@ -134,10 +140,10 @@ export function useCreateInvoice() {
           service_type: li.service_type || null,
           sort_order: li.sort_order,
         }));
-        const { error: liErr } = await supabase.from("invoice_line_items" as any).insert(rows);
+        const { error: liErr } = await supabase.from("invoice_line_items").insert(rows);
         if (liErr) throw liErr;
       }
-      return invoiceId as string;
+      return invoiceId;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
@@ -151,9 +157,10 @@ export function useUpdateInvoice() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Invoice> & { id: string }) => {
-      const { project, contractor, user_id, created_at, updated_at, ...rest } = updates as any;
+      // Strip joined/read-only fields before sending to DB
+      const { project: _p, contractor: _c, user_id: _u, created_at: _ca, updated_at: _ua, ...rest } = updates;
       const { error } = await supabase
-        .from("invoices" as any)
+        .from("invoices")
         .update(rest)
         .eq("id", id);
       if (error) throw error;
@@ -170,7 +177,7 @@ export function useDeleteInvoice() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("invoices" as any).delete().eq("id", id);
+      const { error } = await supabase.from("invoices").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -184,7 +191,7 @@ export function useDeleteInvoice() {
 export function useGenerateInvoiceNumber() {
   return useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.rpc("generate_invoice_number" as any);
+      const { data, error } = await supabase.rpc("generate_invoice_number");
       if (error) throw error;
       return data as string;
     },
@@ -198,10 +205,19 @@ export function useRevenueStats() {
     queryKey: ["revenue-stats"],
     queryFn: async () => {
       const { data: invoices, error } = await supabase
-        .from("invoices" as any)
+        .from("invoices")
         .select("status, total, amount_paid, paid_at, due_at");
       if (error) throw error;
-      const all = (invoices || []) as any[];
+
+      interface InvoiceStat {
+        status: string;
+        total: number;
+        amount_paid: number;
+        paid_at: string | null;
+        due_at: string | null;
+      }
+
+      const all = (invoices || []) as InvoiceStat[];
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 

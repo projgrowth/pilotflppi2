@@ -28,6 +28,8 @@ export interface Deficiency {
   created_at: string;
 }
 
+type SeverityKey = "critical" | "major" | "minor" | "admin";
+
 export function useReviewFlags(projectId?: string) {
   return useQuery({
     queryKey: ["review_flags", projectId],
@@ -75,10 +77,15 @@ export function useReviewFlagCounts() {
     queryFn: async () => {
       const { data, error } = await supabase.from("review_flags").select("severity, status");
       if (error) throw error;
-      const counts = { critical: 0, major: 0, minor: 0, admin: 0, resolved: 0, total: 0 };
-      (data || []).forEach((f: any) => {
+      const counts: Record<SeverityKey | "resolved" | "total", number> = {
+        critical: 0, major: 0, minor: 0, admin: 0, resolved: 0, total: 0,
+      };
+      const severityKeys: SeverityKey[] = ["critical", "major", "minor", "admin"];
+      (data || []).forEach((f) => {
         if (f.status === "resolved") counts.resolved++;
-        else if (f.severity && f.severity in counts) (counts as any)[f.severity]++;
+        else if (f.severity && severityKeys.includes(f.severity as SeverityKey)) {
+          counts[f.severity as SeverityKey]++;
+        }
         counts.total++;
       });
       return counts;
