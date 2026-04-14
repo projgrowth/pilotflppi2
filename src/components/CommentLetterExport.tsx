@@ -157,7 +157,7 @@ function buildSupplementalSections(config: CountyRequirements): string {
 
 function buildLetterHTML(props: CommentLetterExportProps): string {
   const { projectName, address, county, jurisdiction, tradeType, round, findings, findingStatuses, firmInfo } = props;
-  const firm = firmInfo || { firm_name: "FLORIDA PRIVATE PROVIDERS", license_number: "PVP-XXXXX", email: "", phone: "", address: "", logo_url: "", closing_language: "" };
+  const firm = firmInfo || { firm_name: "Florida Private Providers, Inc.", license_number: "AR92053", email: "", phone: "", address: "", logo_url: "", closing_language: "" };
   const config = getCountyRequirements(county);
   const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const grouped = groupByDiscipline(findings);
@@ -220,9 +220,9 @@ function buildLetterHTML(props: CommentLetterExportProps): string {
 </head><body>
 
 <div class="letterhead">
-  <h1>${firm.firm_name || "FLORIDA PRIVATE PROVIDERS"}</h1>
+  <h1>${firm.firm_name || "Florida Private Providers, Inc."}</h1>
   <p>LICENSED PRIVATE PROVIDER FIRM</p>
-  <p class="license">License # ${firm.license_number || "PVP-XXXXX"} | F.S. 553.791</p>
+  <p class="license">License # ${firm.license_number || "AR92053"} | F.S. 553.791</p>
   <p>Plan Review &bull; Inspections &bull; Code Compliance</p>
   ${firm.address ? `<p style="font-size:7.5pt;color:#718096;margin-top:2px">${firm.address}</p>` : ""}
   ${firm.phone || firm.email ? `<p style="font-size:7.5pt;color:#718096">${[firm.phone, firm.email].filter(Boolean).join(" | ")}</p>` : ""}
@@ -316,7 +316,7 @@ ${buildSupplementalSections(config)}
   <div class="signature-line">
     Plan Review Engineer<br>
     ${firm.firm_name || "Florida Private Providers, Inc."}<br>
-    License # ${firm.license_number || "PVP-XXXXX"}
+    License # ${firm.license_number || "AR92053"}
   </div>
 </div>
 
