@@ -7,15 +7,12 @@ import { renderPDFPagesToImages, type PDFPageImage } from "@/lib/pdf-utils";
 import { useFirmSettings } from "@/hooks/useFirmSettings";
 import { useFindingHistory, logFindingStatusChange } from "@/hooks/useFindingHistory";
 import { useAuth } from "@/contexts/AuthContext";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
-import { PageHeader } from "@/components/PageHeader";
 import {
   Sparkles, Loader2, Check,
   Upload, ArrowLeft,
@@ -30,18 +27,14 @@ import { FindingCard, type Finding } from "@/components/FindingCard";
 import { SeverityDonut } from "@/components/SeverityDonut";
 import { ScanTimeline } from "@/components/ScanTimeline";
 import { PlanMarkupViewer } from "@/components/PlanMarkupViewer";
-import { DeadlineRing } from "@/components/DeadlineRing";
 import { FindingStatusFilter, type FindingStatus } from "@/components/FindingStatusFilter";
 import { DisciplineChecklist } from "@/components/DisciplineChecklist";
 import { SitePlanChecklist } from "@/components/SitePlanChecklist";
-import { CommentLetterExport } from "@/components/CommentLetterExport";
-import { CountyDocumentPackage } from "@/components/CountyDocumentPackage";
-import { getCountyRequirements, getSupplementalSectionLabel } from "@/lib/county-requirements";
+import { getCountyRequirements } from "@/lib/county-requirements";
 import {
-  isHVHZ, getCountyLabel, getDisciplineIcon, getDisciplineColor,
+  isHVHZ, getDisciplineIcon, getDisciplineColor,
   getDisciplineLabel, DISCIPLINE_ORDER, SCANNING_STEPS,
 } from "@/lib/county-utils";
-import { ContractorHoverCard } from "@/components/ContractorHoverCard";
 
 interface ContractorInfo {
   id: string;
