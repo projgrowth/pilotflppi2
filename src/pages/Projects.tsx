@@ -253,12 +253,12 @@ export default function Projects() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Project Name *</Label>
-              <Input placeholder="Oceanview Residences" value={name} onChange={(e) => setName(e.target.value)} />
+              <Label htmlFor="project-name">Project Name *</Label>
+              <Input id="project-name" placeholder="Oceanview Residences" maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Address *</Label>
-              <Input placeholder="123 Main St, Miami, FL 33131" value={address} onChange={(e) => setAddress(e.target.value)} />
+              <Label htmlFor="project-address">Address *</Label>
+              <Input id="project-address" placeholder="123 Main St, Miami, FL 33131" maxLength={500} value={address} onChange={(e) => setAddress(e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -273,8 +273,8 @@ export default function Projects() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Jurisdiction</Label>
-                <Input placeholder="City of Miami" value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} />
+                <Label htmlFor="project-jurisdiction">Jurisdiction</Label>
+                <Input id="project-jurisdiction" placeholder="City of Miami" maxLength={200} value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
