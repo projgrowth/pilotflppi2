@@ -74,7 +74,7 @@ export function QcPendingWidget() {
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-amber-500" />
+            <ShieldCheck className="h-4 w-4 text-warning" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
               QC Pending
             </span>
