@@ -4,6 +4,7 @@ import { useProjectActivityLog, getEventColor } from "@/hooks/useActivityLog";
 import { usePlanReviewFilesByProject } from "@/hooks/usePlanReviewFiles";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
+import type { Database } from "@/integrations/supabase/types";
 
 function getRelativeStoragePath(filePath: string): string {
   const markers = [

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -80,7 +81,7 @@ export default function SettingsPage() {
       setFirmLogoUrl(firmSettings.logo_url || "");
       setFirmClosingLanguage(firmSettings.closing_language || "");
       // Load jurisdictions from DB if they exist
-      const dbJurisdictions = (firmSettings as Record<string, unknown>).jurisdictions;
+      const dbJurisdictions = (firmSettings as unknown as Record<string, unknown>).jurisdictions;
       if (Array.isArray(dbJurisdictions) && dbJurisdictions.length > 0) {
         setJurisdictions(dbJurisdictions);
       }
