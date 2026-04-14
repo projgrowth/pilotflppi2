@@ -1,3 +1,4 @@
+import React from "react";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -56,7 +57,7 @@ const bottomTabs: NavItem[] = [
   { label: "Documents", path: "/documents", icon: FileText },
 ];
 
-function NavSection({ title, items, onNavigate, collapsed }: { title: string; items: NavItem[]; onNavigate?: () => void; collapsed?: boolean }) {
+const NavSection = React.forwardRef<HTMLDivElement, { title: string; items: NavItem[]; onNavigate?: () => void; collapsed?: boolean }>(function NavSection({ title, items, onNavigate, collapsed }, ref) {
   const location = useLocation();
   return (
     <div className="mb-6">
@@ -99,7 +100,7 @@ function NavSection({ title, items, onNavigate, collapsed }: { title: string; it
       </nav>
     </div>
   );
-}
+});
 
 function SidebarContent({ onNavigate, collapsed, setCollapsed, onOpenAI }: { onNavigate?: () => void; collapsed?: boolean; setCollapsed?: (v: boolean) => void; onOpenAI?: () => void }) {
   const { user, signOut } = useAuth();
