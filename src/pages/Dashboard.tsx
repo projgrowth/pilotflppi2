@@ -514,7 +514,7 @@ export default function Dashboard() {
               </div>
             </Card>
           ) : (
-            <ActiveReviewsQueue projects={projects || []} navigate={navigate} />
+            <ActiveReviewsQueue projects={projects || []} navigate={navigate} latestReviews={latestReviews} />
           )}
         </div>
 
