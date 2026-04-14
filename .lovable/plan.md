@@ -1,97 +1,68 @@
 
 
-# Revenue & Billing Module — Full Admin Control
+# Remaining Work — Sequential Execution Plan
 
-The billing module hasn't been built yet. This plan creates it from scratch with full user control over every aspect: fee schedules, invoice creation, line-item editing, custom fees per project, and payment tracking.
+## Status Check: What's Done
 
-## Core Principle: Admin Has Full Control
+Prompts 1–9 and 14–15 from the suite are implemented. The billing module (fee schedules, invoices, invoice editor, billing tab, dashboard KPIs) is complete. All routes are wired and auth-protected.
 
-Every auto-generated value is a **draft suggestion** — the user can always edit, add, remove, or override any line item, fee, tax rate, due date, or status before sending.
+## What Remains
 
----
-
-## Database Schema (Migration)
-
-### 3 New Tables
-
-**fee_schedules** — Firm-wide default rates (editable in Settings)
-- `id`, `user_id`, `service_type` (plan_review, inspection, resubmission, expedited, custom), `trade_type`, `county`, `base_fee`, `description`, `is_active`, `created_at`, `updated_at`
-
-**invoices** — Per-project invoices, fully editable
-- `id`, `user_id`, `project_id` (FK → projects), `contractor_id` (FK → contractors), `invoice_number`, `status` (draft/sent/paid/partial/overdue/void), `issued_at`, `due_at`, `paid_at`, `subtotal`, `tax_rate`, `tax_amount`, `total`, `amount_paid`, `notes`, `custom_footer`, `created_at`, `updated_at`
-
-**invoice_line_items** — Individual charges, fully editable
-- `id`, `invoice_id` (FK → invoices), `description`, `quantity`, `unit_price`, `total`, `service_type`, `sort_order`, `created_at`
-
-All tables have RLS scoped to `user_id = auth.uid()` for fee_schedules/invoices, and invoice ownership for line items.
+Three categories: **security fixes**, **UI polish gaps**, and **functional completeness**.
 
 ---
 
-## What the User Can Do
+## Execution Order
 
-### In Settings → Fee Schedule Tab
-- Add/edit/delete default service rates (per trade, per county)
-- These are **templates** — they pre-populate invoices but never lock them
+### Step 1 — Fix AI Edge Function Auth (Security Error)
+The `ai` edge function has no JWT validation — anyone with the anon key can burn AI credits. Fix:
+- In `supabase/functions/ai/index.ts`: extract `Authorization` header, validate user via `supabase.auth.getUser()`, reject if unauthenticated.
+- In `src/lib/ai.ts` (`streamAI`): replace the anon key with the user's session access token from `supabase.auth.getSession()`.
 
-### In ProjectDetail → Billing Tab
-- **Generate Invoice** button → auto-populates line items from fee schedule based on project's trade/county + services rendered (plan reviews, inspections)
-- **Before saving**: user sees a full editable form:
-  - Add/remove/reorder line items
-  - Edit any description, quantity, or unit price
-  - Add custom one-off line items (e.g. "Rush fee", "Travel surcharge")
-  - Adjust tax rate per invoice
-  - Set custom due date
-  - Add notes/custom footer
-- **After saving as draft**: user can still edit everything
-- **Mark as Sent**: locks editing (with "Unlock to edit" override)
-- **Record Payment**: partial or full, with payment date
-- **Void**: cancel an invoice with reason
+### Step 2 — Fix Storage Bucket RLS (Security Error)
+The `documents` bucket lets any authenticated user read/delete any file. Fix via migration:
+- Drop existing permissive storage policies on `documents` bucket.
+- Create path-based ownership policies: users can only access files under their own `user_id/` prefix using `storage.foldername(name)`.
+- Update upload code to prefix file paths with `user.id`.
 
-### In Invoices List Page (`/invoices`)
-- See all invoices across projects
-- Filter by status (Draft, Sent, Paid, Overdue, Void)
-- Search by project name, contractor, or invoice number
-- Click through to project detail billing tab
-- Bulk mark as sent
+### Step 3 — Enhance Document Generator (Prompt 10 gaps)
+Current `DocumentsGen.tsx` is a stub with cards but no actual generation. Add:
+- Pre-flight checklist dialog showing populated vs missing fields when "Generate" is clicked.
+- Comment Letter generation: pull `review_flags` for selected project, organize by discipline, render formatted HTML preview.
+- Copy-to-clipboard and basic "Download" action for generated content.
 
-### On Dashboard
-- 3 new KPI cards: Revenue MTD, Outstanding, Overdue
-- Compact "Accounts Receivable" widget showing top unpaid invoices
+### Step 4 — Enhance Deficiencies Page (Prompt 11 gaps)
+Current page works but missing:
+- "Add to Active Review" popover that lets user pick a project and INSERTs a `review_flags` row from the deficiency data.
+- Residential/Commercial filter toggle.
+- Item count badge showing filtered results count.
 
----
+### Step 5 — Enhance Analytics Page (Prompt 12 gaps)
+Verify all 5 charts render with real data hooks. Add:
+- Date range selector (30d / 90d / 12mo / All Time) that filters chart data.
+- Human Correction Rate table at bottom with color-coded HCR% column.
+- Review Pipeline Funnel chart (stage counts as descending bars).
 
-## Files to Create
+### Step 6 — Seed Jurisdictions Data (Prompt 13 gap)
+Check if the 12 jurisdiction rows from the prompt suite were seeded. If not, create a migration to INSERT them. Verify the Jurisdictions page displays all fields (wind zone tags, flood zone, portal links, registration status badges).
 
-| File | Purpose |
-|------|---------|
-| `supabase/migrations/` | Create 3 tables + RLS + auto-number function |
-| `src/hooks/useInvoices.ts` | CRUD hooks for invoices + line items |
-| `src/hooks/useFeeSchedule.ts` | CRUD hooks for fee schedule |
-| `src/pages/Invoices.tsx` | Invoice list page with filters |
-| `src/components/InvoiceBillingTab.tsx` | Billing tab for ProjectDetail |
-| `src/components/InvoiceEditor.tsx` | Full invoice editor (line items, tax, notes) |
-| `src/components/GenerateInvoiceDialog.tsx` | Auto-populate + customize before saving |
-| `src/components/FeeScheduleSettings.tsx` | Fee schedule CRUD in Settings |
+### Step 7 — Mobile Polish Pass (Prompt 14 gaps)
+- Dashboard: 2-column KPI grid on mobile, card-based active reviews (not table).
+- ReviewDetail: "View Plans" bottom sheet toggle, "Field Mode" switch filtering to Critical/Major only, persisted in localStorage.
+- All tables: horizontal scroll wrapper on mobile.
 
-## Files to Modify
-
-| File | Change |
-|------|--------|
-| `src/App.tsx` | Add `/invoices` route |
-| `src/components/AppSidebar.tsx` | Add Invoices nav item |
-| `src/components/CommandPalette.tsx` | Add Invoices to search |
-| `src/pages/ProjectDetail.tsx` | Add Billing tab |
-| `src/pages/Settings.tsx` | Add Fee Schedule tab |
-| `src/pages/Dashboard.tsx` | Add revenue KPIs + AR widget |
+### Step 8 — Final Verification
+- TypeScript build check (`tsc --noEmit`).
+- Navigate all routes, confirm no console errors.
+- Re-run security scan to verify fixes landed.
 
 ---
 
-## Key Design Decisions
+## Technical Notes
 
-1. **Auto-generation is always a suggestion** — the Generate Invoice dialog shows a pre-filled draft that the user reviews and edits before saving
-2. **Custom line items** — users can add arbitrary charges not in the fee schedule
-3. **Per-invoice tax rate** — defaults from firm settings but editable per invoice
-4. **Invoice numbering** — auto-generated (FPP-2026-0001) but editable
-5. **Sent invoices are soft-locked** — user can unlock to make corrections
-6. **Partial payments** — `amount_paid` tracks running total; status auto-updates to `partial` or `paid`
+- Each step is self-contained and verifiable before moving to the next.
+- Steps 1–2 are security fixes (highest priority).
+- Steps 3–7 are UI/feature completeness from the prompt suite.
+- Step 8 is the post-implementation checklist rerun.
+- All work uses existing patterns (hooks, shared components, Supabase client).
 
