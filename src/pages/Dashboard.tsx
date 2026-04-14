@@ -13,10 +13,11 @@ import DaysActiveBadge from "@/components/shared/DaysActiveBadge";
 import SkeletonRow from "@/components/shared/SkeletonRow";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
+import { useRevenueStats, useInvoices } from "@/hooks/useInvoices";
 import {
   FileText, CheckCircle, ClipboardCheck, AlertTriangle,
   Calendar, Zap, Eye, MessageSquare, FileCheck, Clipboard,
-  ChevronUp, ChevronDown, Plus,
+  ChevronUp, ChevronDown, Plus, DollarSign, Clock, TrendingUp,
 } from "lucide-react";
 import { format, formatDistanceToNow, addDays, isToday, isTomorrow, isPast } from "date-fns";
 import { useNavigate } from "react-router-dom";
