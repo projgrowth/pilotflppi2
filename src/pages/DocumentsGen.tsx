@@ -50,8 +50,8 @@ function generateCommentLetterHtml(
 
   return `<div style="font-family:Georgia,serif;max-width:700px;margin:0 auto;padding:32px">
 <div style="text-align:center;margin-bottom:24px">
-  <h1 style="font-size:18px;margin:0">${firm?.firm_name || "Florida Private Providers, Inc."}</h1>
-  <p style="font-size:12px;color:#666;margin:4px 0">License # ${firm?.license_number || "PVP-XXXXX"}</p>
+   <h1 style="font-size:18px;margin:0">${firm?.firm_name || "Florida Private Providers, Inc."}</h1>
+   <p style="font-size:12px;color:#666;margin:4px 0">License # ${firm?.license_number || "AR92053"}</p>
   <p style="font-size:14px;font-weight:600;margin:8px 0">Plan Review Comment Letter</p>
 </div>
 <p style="font-size:13px"><strong>Date:</strong> ${today}</p>
