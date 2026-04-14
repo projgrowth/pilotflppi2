@@ -117,7 +117,7 @@ function ActiveReviewsQueue({ projects, navigate }: { projects: any[]; navigate:
                 </td>
                 <td className="px-4 py-3 text-xs text-muted-foreground">{p.jurisdiction || p.county || "—"}</td>
                 <td className="px-4 py-3"><StatusChip status={p.status} /></td>
-                <td className="px-4 py-3"><ConfidenceBar value={75} width={80} /></td>
+                <td className="px-4 py-3"><ConfidenceBar score={0.75} /></td>
                 <td className="px-4 py-3"><DaysActiveBadge days={p.daysActive} /></td>
                 <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
@@ -390,7 +390,7 @@ export default function Dashboard() {
           {projectsLoading ? (
             <Card className="shadow-subtle">
               <div className="p-4 space-y-2">
-                {Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)}
+                {Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} cols={6} />)}
               </div>
             </Card>
           ) : (
