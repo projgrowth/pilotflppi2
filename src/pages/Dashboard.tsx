@@ -45,7 +45,7 @@ function DashKpi({
 /* ── Active Reviews Table ── */
 type SortKey = "days" | "confidence" | "jurisdiction" | "stage";
 
-function ActiveReviewsQueue({ projects, navigate }: { projects: any[]; navigate: (p: string) => void }) {
+function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: any[]; navigate: (p: string) => void; latestReviews?: Record<string, string> }) {
   const [sortKey, setSortKey] = useState<SortKey>("days");
   const [sortAsc, setSortAsc] = useState(false);
 
