@@ -275,12 +275,6 @@ export default function PlanReviewDetail() {
     }
   };
 
-  const removeFile = async (urlToRemove: string) => {
-    if (!review) return;
-    const newUrls = (review.file_urls || []).filter((u) => u !== urlToRemove);
-    await supabase.from("plan_reviews").update({ file_urls: newUrls }).eq("id", review.id);
-    queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
-  };
 
   const renderDocumentPages = async (r: PlanReviewRow): Promise<PDFPageImage[]> => {
     if (!r.file_urls || r.file_urls.length === 0) return [];
@@ -531,7 +525,7 @@ export default function PlanReviewDetail() {
   const county = review.project?.county || "";
   const hvhz = isHVHZ(county);
   const fileUrls = review.file_urls || [];
-  const hasMarkup = findings.some((f) => f.markup);
+  
   const contractor = review.project?.contractor || null;
 
   const filteredFindings = statusFilter === "all"
