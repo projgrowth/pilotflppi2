@@ -182,7 +182,7 @@ export default function ProjectDetail() {
     try {
       const { error } = await supabase
         .from("projects")
-        .update({ status: newStatus as any })
+        .update({ status: newStatus as Database["public"]["Enums"]["project_status"] })
         .eq("id", project.id);
       if (error) throw error;
 
