@@ -120,6 +120,7 @@ export default function PlanReviewDetail() {
   const [scanStep, setScanStep] = useState(0);
   const [commentLetter, setCommentLetter] = useState("");
   const [generatingLetter, setGeneratingLetter] = useState(false);
+  const letterAbortRef = useRef<AbortController | null>(null);
   const [copied, setCopied] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [rightPanel, setRightPanel] = useState<RightPanelMode>("findings");
@@ -413,6 +414,11 @@ export default function PlanReviewDetail() {
   };
 
   const generateCommentLetter = async (r: PlanReviewRow) => {
+    // Abort any in-flight letter generation before starting a new one.
+    letterAbortRef.current?.abort();
+    const controller = new AbortController();
+    letterAbortRef.current = controller;
+
     setGeneratingLetter(true);
     setCommentLetter("");
     setRightPanel("letter");
@@ -430,11 +436,23 @@ export default function PlanReviewDetail() {
         },
         onDelta: (chunk) => setCommentLetter((prev) => prev + chunk),
         onDone: () => setGeneratingLetter(false),
+        signal: controller.signal,
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to generate letter");
+      const msg = err instanceof Error ? err.message : "Failed to generate letter";
+      if (msg === "AI request cancelled") {
+        toast.message("Letter generation cancelled");
+      } else {
+        toast.error(msg);
+      }
       setGeneratingLetter(false);
+    } finally {
+      if (letterAbortRef.current === controller) letterAbortRef.current = null;
     }
+  };
+
+  const cancelCommentLetter = () => {
+    letterAbortRef.current?.abort();
   };
 
   const copyLetter = () => {
@@ -681,7 +699,7 @@ export default function PlanReviewDetail() {
                 {rightPanel === "checklist" && <div className="p-3"><DisciplineChecklist tradeType={review.project?.trade_type || "building"} findings={findings} /></div>}
                 {rightPanel === "completeness" && <div className="p-3"><SitePlanChecklist findings={findings} county={county} /></div>}
                 {rightPanel === "letter" && (
-                  <LetterPanel reviewId={review.id} projectId={review.project_id} projectName={review.project?.name || ""} address={review.project?.address || ""} county={county} jurisdiction={review.project?.jurisdiction || ""} tradeType={review.project?.trade_type || ""} round={review.round} aiCheckStatus={review.ai_check_status} qcStatus={review.qc_status || "pending_qc"} hasFindings={hasFindings} findings={findings} findingStatuses={findingStatuses} firmSettings={firmSettings} commentLetter={commentLetter} generatingLetter={generatingLetter} copied={copied} userId={user?.id} onGenerateLetter={() => generateCommentLetter(review)} onCopyLetter={copyLetter} onLetterChange={setCommentLetter} onQcApprove={async () => { await supabase.from("plan_reviews").update({ qc_status: "qc_approved", qc_reviewer_id: user?.id }).eq("id", review.id); queryClient.invalidateQueries({ queryKey: ["plan-review", id] }); toast.success("QC approved"); }} onQcReject={async () => { await supabase.from("plan_reviews").update({ qc_status: "qc_rejected", qc_reviewer_id: user?.id }).eq("id", review.id); queryClient.invalidateQueries({ queryKey: ["plan-review", id] }); toast.error("QC rejected"); }} onDocumentGenerated={() => queryClient.invalidateQueries({ queryKey: ["project-documents", review.project_id] })} />
+                  <LetterPanel reviewId={review.id} projectId={review.project_id} projectName={review.project?.name || ""} address={review.project?.address || ""} county={county} jurisdiction={review.project?.jurisdiction || ""} tradeType={review.project?.trade_type || ""} round={review.round} aiCheckStatus={review.ai_check_status} qcStatus={review.qc_status || "pending_qc"} hasFindings={hasFindings} findings={findings} findingStatuses={findingStatuses} firmSettings={firmSettings} commentLetter={commentLetter} generatingLetter={generatingLetter} copied={copied} userId={user?.id} onGenerateLetter={() => generateCommentLetter(review)} onCancelLetter={cancelCommentLetter} onCopyLetter={copyLetter} onLetterChange={setCommentLetter} onQcApprove={async () => { await supabase.from("plan_reviews").update({ qc_status: "qc_approved", qc_reviewer_id: user?.id }).eq("id", review.id); queryClient.invalidateQueries({ queryKey: ["plan-review", id] }); toast.success("QC approved"); }} onQcReject={async () => { await supabase.from("plan_reviews").update({ qc_status: "qc_rejected", qc_reviewer_id: user?.id }).eq("id", review.id); queryClient.invalidateQueries({ queryKey: ["plan-review", id] }); toast.error("QC rejected"); }} onDocumentGenerated={() => queryClient.invalidateQueries({ queryKey: ["project-documents", review.project_id] })} />
                 )}
                 {rightPanel === "county" && <CountyPanel county={county} />}
               </div>
@@ -927,7 +945,7 @@ export default function PlanReviewDetail() {
                     generatingLetter={generatingLetter}
                     copied={copied}
                     userId={user?.id}
-                    onGenerateLetter={() => generateCommentLetter(review)}
+                    onGenerateLetter={() => generateCommentLetter(review)} onCancelLetter={cancelCommentLetter}
                     onCopyLetter={copyLetter}
                     onLetterChange={setCommentLetter}
                     onQcApprove={async () => {

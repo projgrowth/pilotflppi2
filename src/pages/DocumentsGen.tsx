@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
 import DOMPurify from "dompurify";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { useProjects } from "@/hooks/useProjects";
 import { useReviewFlags } from "@/hooks/useReviewData";
 import { useFirmSettings } from "@/hooks/useFirmSettings";
@@ -24,47 +26,195 @@ interface PreflightItem {
   value?: string;
 }
 
+type ProjectInfo = { name: string; address: string; county: string; jurisdiction: string; trade_type: string };
+type FirmInfoLite = { firm_name: string; license_number: string; email: string; phone: string; address?: string } | null;
+
+const docShellCSS = `
+  body { font-family: Georgia, 'Times New Roman', serif; max-width: 720px; margin: 0 auto; padding: 32px; color: #1a1a1a; line-height: 1.6; }
+  h1 { font-size: 18px; margin: 0; color: #1a365d; }
+  h2 { font-size: 14px; margin: 16px 0 8px; color: #1a365d; border-bottom: 1px solid #cbd5e0; padding-bottom: 4px; }
+  p { font-size: 13px; margin: 6px 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+  th, td { border: 1px solid #cbd5e0; padding: 5px 8px; text-align: left; }
+  th { background: #edf2f7; }
+  .meta { font-size: 12px; color: #4a5568; margin: 4px 0; }
+  .header { text-align: center; border-bottom: 2px solid #1a365d; padding-bottom: 12px; margin-bottom: 20px; }
+  .signature { margin-top: 40px; border-top: 1px solid #1a1a1a; width: 280px; padding-top: 4px; font-size: 11px; }
+  .empty { color: #718096; font-style: italic; font-size: 12px; }
+`;
+
+function todayLong() {
+  return new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+
 function generateCommentLetterHtml(
-  project: { name: string; address: string; county: string; jurisdiction: string; trade_type: string },
+  project: ProjectInfo,
   flags: { fbc_section: string | null; description: string | null; severity: string | null; sheet_ref: string | null }[],
-  firm: { firm_name: string; license_number: string; email: string; phone: string } | null
+  firm: FirmInfoLite,
 ): string {
-  const byDiscipline: Record<string, typeof flags> = {};
+  const byGroup: Record<string, typeof flags> = {};
   flags.forEach((f) => {
     const key = f.severity === "critical" ? "Critical" : f.severity === "major" ? "Major" : "Minor / Advisory";
-    if (!byDiscipline[key]) byDiscipline[key] = [];
-    byDiscipline[key].push(f);
+    (byGroup[key] ||= []).push(f);
   });
-
-  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
   let items = "";
   let idx = 1;
-  for (const [group, groupFlags] of Object.entries(byDiscipline)) {
-    items += `<h3 style="margin-top:16px;font-size:14px;font-weight:600;border-bottom:1px solid #ddd;padding-bottom:4px">${group} (${groupFlags.length})</h3>`;
+  for (const [group, groupFlags] of Object.entries(byGroup)) {
+    items += `<h2>${group} (${groupFlags.length})</h2>`;
     for (const f of groupFlags) {
-      items += `<p style="margin:6px 0;font-size:13px">${idx}. <strong>FBC ${f.fbc_section || "N/A"}</strong>${f.sheet_ref ? ` — Sheet ${f.sheet_ref}` : ""}: ${f.description || "No description"}${f.severity === "critical" ? " ⚠️" : ""}</p>`;
+      items += `<p>${idx}. <strong>FBC ${f.fbc_section || "N/A"}</strong>${f.sheet_ref ? ` — Sheet ${f.sheet_ref}` : ""}: ${f.description || "No description"}${f.severity === "critical" ? " ⚠️" : ""}</p>`;
       idx++;
     }
   }
 
-  return `<div style="font-family:Georgia,serif;max-width:700px;margin:0 auto;padding:32px">
-<div style="text-align:center;margin-bottom:24px">
-   <h1 style="font-size:18px;margin:0">${firm?.firm_name || "Florida Private Providers, Inc."}</h1>
-   <p style="font-size:12px;color:#666;margin:4px 0">License # ${firm?.license_number || "AR92053"}</p>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${docShellCSS}</style></head><body>
+<div class="header">
+  <h1>${firm?.firm_name || "Florida Private Providers, Inc."}</h1>
+  <p class="meta">License # ${firm?.license_number || "AR92053"}</p>
   <p style="font-size:14px;font-weight:600;margin:8px 0">Plan Review Comment Letter</p>
 </div>
-<p style="font-size:13px"><strong>Date:</strong> ${today}</p>
-<p style="font-size:13px"><strong>Project:</strong> ${project.name}</p>
-<p style="font-size:13px"><strong>Address:</strong> ${project.address}</p>
-<p style="font-size:13px"><strong>County / Jurisdiction:</strong> ${project.county} — ${project.jurisdiction}</p>
-<p style="font-size:13px"><strong>Trade(s):</strong> ${project.trade_type}</p>
+<p><strong>Date:</strong> ${todayLong()}</p>
+<p><strong>Project:</strong> ${project.name}</p>
+<p><strong>Address:</strong> ${project.address}</p>
+<p><strong>County / Jurisdiction:</strong> ${project.county} — ${project.jurisdiction}</p>
+<p><strong>Trade(s):</strong> ${project.trade_type}</p>
 <hr style="margin:16px 0;border:none;border-top:1px solid #ccc">
-<p style="font-size:13px">Pursuant to F.S. 553.791, the following deficiencies were identified during plan review. Corrections must be addressed and plans resubmitted within <strong>14 calendar days</strong>.</p>
+<p>Pursuant to F.S. 553.791, the following deficiencies were identified during plan review. Corrections must be addressed and plans resubmitted within <strong>14 calendar days</strong>.</p>
 ${items}
 <hr style="margin:16px 0;border:none;border-top:1px solid #ccc">
-<p style="font-size:12px;color:#666">Please resubmit corrected plans within 14 calendar days per F.S. 553.791(4)(b). Contact ${firm?.email || "info@flppi.com"} or ${firm?.phone || "(555) 555-0000"} with questions.</p>
-</div>`;
+<p class="meta">Contact ${firm?.email || "info@flppi.com"} or ${firm?.phone || "(555) 555-0000"} with questions.</p>
+</body></html>`;
+}
+
+function generatePlanComplianceAffidavitHtml(project: ProjectInfo, firm: FirmInfoLite): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${docShellCSS}</style></head><body>
+<div class="header">
+  <h1>Plan Compliance Affidavit</h1>
+  <p class="meta">Pursuant to Florida Statute 553.791 — Florida Building Code, 8th Edition (2023)</p>
+</div>
+
+<p><strong>Date:</strong> ${todayLong()}</p>
+<p><strong>Project:</strong> ${project.name}</p>
+<p><strong>Address:</strong> ${project.address}</p>
+<p><strong>County / Jurisdiction:</strong> ${project.county} — ${project.jurisdiction}</p>
+<p><strong>Trade(s):</strong> ${project.trade_type}</p>
+
+<h2>Affidavit Statement</h2>
+<p>I, the undersigned licensed Private Provider, hereby certify under penalty of perjury that the construction documents submitted for the above-referenced project have been reviewed for compliance with the Florida Building Code, 8th Edition (2023), all referenced standards, and applicable local amendments adopted by ${project.county} County.</p>
+
+<p>This review has been conducted in accordance with Florida Statute 553.791 and meets the requirements for plan review by a duly licensed Private Provider firm. All deficiencies, if any, have been documented and communicated to the applicant via the accompanying Plan Review Comment Letter.</p>
+
+<p>The undersigned attests that the firm carries the insurance and certifications required by F.S. 553.791(2) and is authorized to perform plan review services in the State of Florida.</p>
+
+<h2>Firm Information</h2>
+<p><strong>Firm:</strong> ${firm?.firm_name || "Florida Private Providers, Inc."}</p>
+<p><strong>License #:</strong> ${firm?.license_number || "AR92053"}</p>
+${firm?.address ? `<p><strong>Address:</strong> ${firm.address}</p>` : ""}
+<p><strong>Contact:</strong> ${firm?.phone || "(555) 555-0000"} • ${firm?.email || "info@flppi.com"}</p>
+
+<div class="signature">
+  Signature of Licensed Private Provider<br/>
+  ${firm?.firm_name || "Florida Private Providers, Inc."}<br/>
+  License # ${firm?.license_number || "AR92053"}
+</div>
+</body></html>`;
+}
+
+function generateNoticeToBuildingOfficialHtml(project: ProjectInfo, firm: FirmInfoLite): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${docShellCSS}</style></head><body>
+<div class="header">
+  <h1>Notice to Building Official</h1>
+  <p class="meta">Required Pre-Service Notice — F.S. 553.791(4)(a)</p>
+</div>
+
+<p><strong>Date:</strong> ${todayLong()}</p>
+<p><strong>To:</strong> Building Official, ${project.jurisdiction || project.county}</p>
+
+<h2>Notice of Private Provider Services</h2>
+<p>Pursuant to Florida Statute 553.791, the undersigned firm hereby provides notice of intent to perform Private Provider plan review and/or inspection services for the project identified below.</p>
+
+<p><strong>Project Name:</strong> ${project.name}</p>
+<p><strong>Project Address:</strong> ${project.address}</p>
+<p><strong>County:</strong> ${project.county}</p>
+<p><strong>Trade(s):</strong> ${project.trade_type}</p>
+
+<h2>Private Provider Firm</h2>
+<p><strong>Firm:</strong> ${firm?.firm_name || "Florida Private Providers, Inc."}</p>
+<p><strong>License #:</strong> ${firm?.license_number || "AR92053"}</p>
+${firm?.address ? `<p><strong>Address:</strong> ${firm.address}</p>` : ""}
+<p><strong>Phone:</strong> ${firm?.phone || "(555) 555-0000"}</p>
+<p><strong>Email:</strong> ${firm?.email || "info@flppi.com"}</p>
+
+<h2>Scope &amp; Insurance Affirmation</h2>
+<p>The firm carries professional liability insurance in compliance with F.S. 553.791(2) and assumes responsibility for the scope of services described herein. All required notifications, inspections, and certifications will be furnished to the building official as required by statute.</p>
+
+<div class="signature">
+  Authorized Signature<br/>
+  ${firm?.firm_name || "Florida Private Providers, Inc."}
+</div>
+</body></html>`;
+}
+
+interface PlanReviewRecord { id: string; round: number; qc_status: string; updated_at: string; ai_findings: unknown }
+function generateApprovedDocumentsLogHtml(project: ProjectInfo, reviews: PlanReviewRecord[]): string {
+  const approved = reviews.filter((r) => r.qc_status === "qc_approved");
+  const rows = approved.length === 0
+    ? `<tr><td colspan="4" class="empty">No approved documents yet.</td></tr>`
+    : approved.map((r) => {
+        const findingCount = Array.isArray(r.ai_findings) ? (r.ai_findings as unknown[]).length : 0;
+        return `<tr><td>Round ${r.round}</td><td>${new Date(r.updated_at).toLocaleDateString()}</td><td>${findingCount}</td><td>QC Approved</td></tr>`;
+      }).join("");
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${docShellCSS}</style></head><body>
+<div class="header">
+  <h1>Log of Approved Documents</h1>
+  <p class="meta">${project.name} — ${project.address}</p>
+</div>
+
+<p><strong>County / Jurisdiction:</strong> ${project.county} — ${project.jurisdiction}</p>
+<p><strong>Trade(s):</strong> ${project.trade_type}</p>
+<p><strong>Generated:</strong> ${todayLong()}</p>
+
+<h2>Approved Plan Review Rounds</h2>
+<table>
+  <thead><tr><th>Round</th><th>Approval Date</th><th>Findings Count</th><th>Status</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+
+<p class="meta" style="margin-top:16px">This log reflects plan review rounds that have received QC approval. Refer to individual comment letters for detailed findings and resolutions.</p>
+</body></html>`;
+}
+
+interface InspectionRecord { id: string; inspection_type: string; scheduled_at: string | null; result: string; certificate_issued: boolean; notes: string | null }
+function generateInspectionRecordHtml(project: ProjectInfo, inspections: InspectionRecord[]): string {
+  const rows = inspections.length === 0
+    ? `<tr><td colspan="5" class="empty">No inspections recorded.</td></tr>`
+    : inspections.map((i) => `
+        <tr>
+          <td style="text-transform:capitalize">${i.inspection_type.replace(/_/g, " ")}</td>
+          <td>${i.scheduled_at ? new Date(i.scheduled_at).toLocaleDateString() : "—"}</td>
+          <td style="text-transform:capitalize">${i.result}</td>
+          <td>${i.certificate_issued ? "Yes" : "No"}</td>
+          <td>${(i.notes || "").slice(0, 60) || "—"}</td>
+        </tr>`).join("");
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${docShellCSS}</style></head><body>
+<div class="header">
+  <h1>Inspection Record</h1>
+  <p class="meta">${project.name} — ${project.address}</p>
+</div>
+
+<p><strong>County / Jurisdiction:</strong> ${project.county} — ${project.jurisdiction}</p>
+<p><strong>Trade(s):</strong> ${project.trade_type}</p>
+<p><strong>Generated:</strong> ${todayLong()}</p>
+
+<h2>Inspections Performed</h2>
+<table>
+  <thead><tr><th>Phase</th><th>Date</th><th>Result</th><th>Cert. Issued</th><th>Notes</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+</body></html>`;
 }
 
 export default function DocumentsPage() {
@@ -82,6 +232,34 @@ export default function DocumentsPage() {
   const { data: flags } = useReviewFlags(selectedProject || undefined);
   const activeFlags = useMemo(() => (flags || []).filter((f) => f.status !== "resolved"), [flags]);
 
+  const { data: planReviews } = useQuery({
+    queryKey: ["documents-plan-reviews", selectedProject],
+    enabled: !!selectedProject,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("plan_reviews")
+        .select("id, round, qc_status, updated_at, ai_findings")
+        .eq("project_id", selectedProject)
+        .order("round");
+      if (error) throw error;
+      return (data || []) as PlanReviewRecord[];
+    },
+  });
+
+  const { data: inspections } = useQuery({
+    queryKey: ["documents-inspections", selectedProject],
+    enabled: !!selectedProject,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("inspections")
+        .select("id, inspection_type, scheduled_at, result, certificate_issued, notes")
+        .eq("project_id", selectedProject)
+        .order("scheduled_at");
+      if (error) throw error;
+      return (data || []) as InspectionRecord[];
+    },
+  });
+
   const getPreflightChecks = (docTitle: string): PreflightItem[] => {
     const p = selectedProjectData;
     const base: PreflightItem[] = [
@@ -97,16 +275,42 @@ export default function DocumentsPage() {
       base.push({ label: "Firm Name", ready: !!firmSettings?.firm_name, value: firmSettings?.firm_name });
       base.push({ label: "License Number", ready: !!firmSettings?.license_number, value: firmSettings?.license_number });
     }
+    if (docTitle === "Log of Approved Documents") {
+      base.push({ label: "Plan Reviews", ready: (planReviews || []).length > 0, value: `${(planReviews || []).length} round(s)` });
+    }
+    if (docTitle === "Inspection Record") {
+      base.push({ label: "Inspections", ready: (inspections || []).length > 0, value: `${(inspections || []).length} inspection(s)` });
+    }
     return base;
   };
 
   const handleGenerate = (docTitle: string) => {
-    if (docTitle === "Review Comment Letter" && selectedProjectData && activeFlags.length > 0) {
-      const html = generateCommentLetterHtml(selectedProjectData, activeFlags, firmSettings ?? null);
-      setGeneratedHtml(html);
-    } else {
-      setGeneratedHtml("");
+    if (!selectedProjectData) {
+      toast.error("Select a project first.");
+      return;
     }
+    let html = "";
+    switch (docTitle) {
+      case "Review Comment Letter":
+        if (activeFlags.length === 0) {
+          toast.message("No active flags — letter will be empty. Open a plan review to generate findings first.");
+        }
+        html = generateCommentLetterHtml(selectedProjectData, activeFlags, firmSettings ?? null);
+        break;
+      case "Plan Compliance Affidavit":
+        html = generatePlanComplianceAffidavitHtml(selectedProjectData, firmSettings ?? null);
+        break;
+      case "Notice to Building Official":
+        html = generateNoticeToBuildingOfficialHtml(selectedProjectData, firmSettings ?? null);
+        break;
+      case "Log of Approved Documents":
+        html = generateApprovedDocumentsLogHtml(selectedProjectData, planReviews || []);
+        break;
+      case "Inspection Record":
+        html = generateInspectionRecordHtml(selectedProjectData, inspections || []);
+        break;
+    }
+    setGeneratedHtml(html);
     setGenerating(docTitle);
   };
 
@@ -214,7 +418,7 @@ export default function DocumentsPage() {
             )}
 
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setGenerating(null)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setGenerating(null)}>Close</Button>
               {generatedHtml && (
                 <>
                   <Button variant="outline" onClick={handleCopyHtml}>
@@ -224,9 +428,6 @@ export default function DocumentsPage() {
                     <Download className="h-4 w-4 mr-1" /> Download
                   </Button>
                 </>
-              )}
-              {!generatedHtml && (
-                <Button disabled>Download PDF</Button>
               )}
             </div>
           </div>

@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Sparkles, Loader2, Send, Check, Copy } from "lucide-react";
+import { Sparkles, Loader2, Send, Check, Copy, X } from "lucide-react";
 import { CountyDocumentPackage } from "@/components/CountyDocumentPackage";
 import { cn } from "@/lib/utils";
 import type { Finding } from "@/components/FindingCard";
@@ -27,6 +27,7 @@ interface LetterPanelProps {
   copied: boolean;
   userId?: string;
   onGenerateLetter: () => void;
+  onCancelLetter?: () => void;
   onCopyLetter: () => void;
   onLetterChange: (value: string) => void;
   onQcApprove: () => void;
@@ -38,7 +39,7 @@ export function LetterPanel({
   qcStatus, hasFindings, findings, findingStatuses, firmSettings,
   commentLetter, generatingLetter, copied, county, jurisdiction,
   tradeType, round, projectId, projectName, address, aiCheckStatus,
-  onGenerateLetter, onCopyLetter, onLetterChange, onQcApprove, onQcReject, onDocumentGenerated,
+  onGenerateLetter, onCancelLetter, onCopyLetter, onLetterChange, onQcApprove, onQcReject, onDocumentGenerated,
 }: LetterPanelProps) {
   return (
     <div className="p-3 space-y-3">
@@ -117,7 +118,14 @@ export function LetterPanel({
           <div className="rounded-lg border bg-background overflow-hidden">
             <div className="border-b bg-muted/30 px-4 py-2 flex items-center justify-between">
               <span className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">FLPPI — Comment Letter</span>
-              {generatingLetter && <Loader2 className="h-3 w-3 text-accent animate-spin" />}
+              <div className="flex items-center gap-2">
+                {generatingLetter && <Loader2 className="h-3 w-3 text-accent animate-spin" />}
+                {generatingLetter && onCancelLetter && (
+                  <Button size="sm" variant="ghost" className="h-6 text-2xs" onClick={onCancelLetter}>
+                    <X className="h-3 w-3 mr-1" /> Cancel
+                  </Button>
+                )}
+              </div>
             </div>
             <Textarea
               value={commentLetter}
