@@ -255,18 +255,15 @@ export default function PlanReviewDetail() {
       const allImages: PDFPageImage[] = [];
       for (let fi = 0; fi < r.file_urls.length; fi++) {
         const storedPath = r.file_urls[fi];
-        if (!storedPath) continue; // skip null/undefined entries
-        // If it's a full URL (legacy public URL), extract the path; otherwise use as-is
+        if (!storedPath) continue;
+        // Legacy entries stored full public URLs; new entries store storage paths.
         const filePath = storedPath.includes('/storage/v1/')
           ? storedPath.split('/documents/').pop() || storedPath
           : storedPath;
         const { data: signedData, error: signError } = await supabase.storage
           .from("documents")
           .createSignedUrl(filePath, 3600);
-        if (signError || !signedData?.signedUrl) {
-          // signed URL generation failed — skip this file
-          continue;
-        }
+        if (signError || !signedData?.signedUrl) continue;
         const response = await fetch(signedData.signedUrl);
         const blob = await response.blob();
         const file = new File([blob], `doc-${fi}.pdf`, { type: "application/pdf" });
@@ -276,8 +273,7 @@ export default function PlanReviewDetail() {
       }
       setPageImages(allImages);
       return allImages;
-    } catch (err) {
-      // page rendering failed silently
+    } catch {
       return [];
     } finally {
       setRenderingPages(false);
@@ -326,10 +322,9 @@ export default function PlanReviewDetail() {
               findings = match ? JSON.parse(match[0]) : [];
             }
           } catch {
-            try {
-              const match = result.match(/\[[\s\S]*\]/);
-              if (match) findings = JSON.parse(match[0]);
-            } catch { /* fallback below */ }
+            // Model returned prose around the JSON; salvage the array.
+            const match = result.match(/\[[\s\S]*\]/);
+            try { findings = match ? JSON.parse(match[0]) : []; } catch { findings = []; }
           }
         }
       }

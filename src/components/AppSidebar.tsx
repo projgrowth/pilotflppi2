@@ -291,11 +291,12 @@ export function AppSidebar({ onOpenAI }: { onOpenAI?: () => void }) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
+    // localStorage may throw in private/SSR contexts; default to expanded.
     try { return localStorage.getItem("sidebar-collapsed") === "true"; } catch { return false; }
   });
 
   useEffect(() => {
-    try { localStorage.setItem("sidebar-collapsed", String(collapsed)); } catch {}
+    try { localStorage.setItem("sidebar-collapsed", String(collapsed)); } catch { /* storage unavailable */ }
   }, [collapsed]);
 
   if (isMobile) {
