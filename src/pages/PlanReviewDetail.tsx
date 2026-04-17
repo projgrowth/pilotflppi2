@@ -136,6 +136,17 @@ export default function PlanReviewDetail() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [aiCompleteFlash, setAiCompleteFlash] = useState<number | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [repositioningIndex, setRepositioningIndex] = useState<number | null>(null);
+
+  const handleRepositionConfirm = useCallback(async (idx: number, newMarkup: { page_index: number; x: number; y: number; width: number; height: number }) => {
+    if (!review) return;
+    const current = (review.ai_findings as Finding[]) || [];
+    const updated = current.map((f, i) => i === idx ? { ...f, markup: { ...(f.markup || {}), ...newMarkup } } : f);
+    await supabase.from("plan_reviews").update({ ai_findings: JSON.parse(JSON.stringify(updated)) }).eq("id", review.id);
+    queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
+    setRepositioningIndex(null);
+    toast.success(`Pin repositioned for finding #${idx + 1}`);
+  }, [review, id, queryClient]);
 
   useEffect(() => {
     if (review?.finding_statuses) {
@@ -814,6 +825,9 @@ export default function PlanReviewDetail() {
                     findings={findings}
                     activeFindingIndex={activeFindingIndex}
                     onAnnotationClick={handleAnnotationClick}
+                    repositioningIndex={repositioningIndex}
+                    onRepositionConfirm={handleRepositionConfirm}
+                    onRepositionCancel={() => setRepositioningIndex(null)}
                     className="flex-1"
                   />
                 )}
