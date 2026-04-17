@@ -77,7 +77,7 @@ export default function Projects() {
       <PageHeader
         title="Projects"
         actions={
-          <Button className="bg-accent text-accent-foreground hover:bg-accent/90" onClick={() => setDialogOpen(true)}>
+          <Button className="bg-accent text-accent-foreground hover:bg-accent/90" onClick={() => setWizardOpen(true)}>
             <Plus className="h-4 w-4 mr-2" /> New Project
           </Button>
         }
