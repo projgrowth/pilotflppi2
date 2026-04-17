@@ -302,7 +302,7 @@ export function NewPlanReviewWizard({ open, onOpenChange, onComplete, preselecte
           .from("documents")
           .upload(path, uf.file, { upsert: true });
         if (uploadError) {
-          // upload error — skip this file
+          toast.error(`Failed to upload ${uf.name}: ${uploadError.message}`);
           continue;
         }
         // Store the path, not a public URL — bucket is private
