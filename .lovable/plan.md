@@ -1,48 +1,68 @@
-# Codebase Cleanup — Execution Report
 
-## Subagent results
 
-### S1 — DRY / Deduplicate
-Main duplication was type definitions (handled in S2). Other repeated helpers (`withRetry`, `getDaysRemaining`) live in 1-2 sites; extracting them would be over-abstraction. **No changes beyond S2.**
+# Knip Cleanup Plan
 
-### S2 — Shared types — `src/types/index.ts` (NEW)
-Consolidated 6 duplicated/shared shapes:
-- `ContractorInfo` (was duplicated 3×)
-- `ProjectInfo`, `PlanReviewRow` (were duplicated 2×)
-- `Finding`, `MarkupData`, `FindingStatus` (now single source; legacy components re-export for backward compatibility)
+## The blocker (and fix)
+Knip can't load `playwright.config.ts` because `lovable-agent-playwright-config` isn't installed in the sandbox. **Fix**: add a `knip.json` that ignores `playwright.config.ts` and `playwright-fixture.ts` and the playwright dependency, so knip runs cleanly without needing the missing package. The Playwright files themselves stay untouched (they're used by the agent test runner, not the app).
 
-**Files updated**: `FindingCard.tsx`, `FindingStatusFilter.tsx`, `ContractorHoverCard.tsx`, `plan-review/ReviewTopBar.tsx`, `pages/PlanReviewDetail.tsx`, `pages/PlanReview.tsx`.
+## Verified findings (manually re-checked against `src/App.tsx` routes & grep)
 
-### S3 — knip
-**Blocked**: knip cannot load `playwright.config.ts` in the sandbox (missing `lovable-agent-playwright-config/config`). Per spec ("do not remove anything that cannot be statically verified"), skipped.
+### Unused files — DELETE (9)
+Genuine orphans. All confirmed with grep — zero references outside themselves.
+- `src/App.css` — Vite default leftover; `src/index.css` is the real stylesheet
+- `src/components/KpiCard.tsx`
+- `src/components/QcPendingWidget.tsx`
+- `src/components/shared/ConfidenceBadge.tsx` (sibling `ConfidenceBar.tsx` is the one in use)
+- `src/hooks/useDashboardStats.ts`
+- `src/pages/Deadlines.tsx` — no `/deadlines` route in `App.tsx`
+- `src/pages/Documents.tsx` — `App.tsx` routes `/documents` to `DocumentsGen`, not this file
+- `src/pages/PlanReview.tsx` — `App.tsx` only has `/plan-review/:id` → `PlanReviewDetail`; no list page route
 
-### S4 — madge --circular
-**Result: 0 circular dependencies.** Nothing to refactor.
+### Unused UI primitives — DELETE (22)
+shadcn boilerplate that was never wired up. Each verified with `grep -rn "from.*ui/<name>"` returning zero hits outside the file itself:
+`alert-dialog, alert, aspect-ratio, avatar, breadcrumb, calendar, carousel, chart, context-menu, drawer, hover-card, input-otp, menubar, navigation-menu, pagination, radio-group, separator, sidebar, slider, toast, toggle-group, toggle`
 
-### S5 — Weak types replaced
-- `Dashboard.tsx`: `projects: any[]` → `Project[]` (2 locations)
-- `Review.tsx`: `daysActive(p: any)` → `{ created_at: string }`
-- `QcPendingWidget.tsx`: `ai_findings: any` → `unknown`
-- `useAILearningStats.ts`: `c: any` → typed `CorrectionRow`
-- `GenerateInvoiceDialog.tsx`: `value: any` → generic `LineItemDraft[K]`
-- `ZoningAnalysisPanel.tsx`: `err: any` → `err instanceof Error`
-- `LetterPanel.tsx`: `firmSettings: any` → `FirmSettings | null | undefined`
+### KEEP (knip flagged but verified in use or intentional)
+- `supabase/functions/*` — edge functions; out of scope per task constraints
+- `src/integrations/supabase/types.ts` exports (`Tables`, `Enums`, etc.) — auto-generated, do not touch
+- `playwright.config.ts`, `playwright-fixture.ts`, `@playwright/test` — agent test runner uses them
+- `lovable-tagger`, `tailwindcss-animate`, `@tailwindcss/typography`, `autoprefixer` — build/PostCSS plugins (knip can't see PostCSS config refs)
+- `@testing-library/react`, `jsdom` — vitest setup
 
-`tsc --noEmit` passes with zero errors.
+### Unused dependencies — REMOVE from `package.json` (18)
+Only the radix packages whose UI files we're deleting + 3 unused utility libs. Each maps 1:1 to a deleted file or to nothing:
+- `@radix-ui/react-alert-dialog` (alert-dialog.tsx)
+- `@radix-ui/react-aspect-ratio` (aspect-ratio.tsx)
+- `@radix-ui/react-avatar` (avatar.tsx)
+- `@radix-ui/react-context-menu` (context-menu.tsx)
+- `@radix-ui/react-hover-card` (hover-card.tsx)
+- `@radix-ui/react-menubar` (menubar.tsx)
+- `@radix-ui/react-navigation-menu` (navigation-menu.tsx)
+- `@radix-ui/react-radio-group` (radio-group.tsx)
+- `@radix-ui/react-separator` (separator.tsx)
+- `@radix-ui/react-slider` (slider.tsx)
+- `@radix-ui/react-toast` (toast.tsx)
+- `@radix-ui/react-toggle` (toggle.tsx)
+- `@radix-ui/react-toggle-group` (toggle-group.tsx)
+- `embla-carousel-react` (carousel.tsx)
+- `input-otp` (input-otp.tsx)
+- `react-day-picker` (calendar.tsx)
+- `vaul` (drawer.tsx)
+- `@types/dompurify` — `dompurify` v3 ships its own types; this is dead weight
 
-### S6 — try/catch audit
-36 catch blocks reviewed. **All kept** — every block handles async I/O (Supabase calls, fetch, JSON parsing of model output, OAuth redirects) and surfaces user-facing toasts. Three silent-fallback catches retained with new intent comments:
-- `AppSidebar.tsx`: localStorage SSR/private-mode guard
-- `CommentLetterExport.tsx`: best-effort archive (download still works)
-- `PlanReviewDetail.tsx`: JSON salvage from prose-wrapped model output
+### Unused exports — leave alone
+The 56 unused named exports (e.g. `buttonVariants`, `DialogPortal`, `SheetClose`, `getStatutoryDeadlineDate`) all live in files that ARE used. Pruning them is risky (shadcn re-exports are commonly used later, lib helpers may be referenced by upcoming features) and high-noise for low value. **Skip.**
 
-### S7 — Legacy/fallback removal
-Removed narration comments around silent catches; replaced the legacy "If it's a full URL" comment with a tighter one. No dead branches remain.
+## Execution steps (after approval)
 
-### S8 — Comments cleanup
-Cleaned narration in `PlanReviewDetail.tsx`, `CommentLetterExport.tsx`, `AppSidebar.tsx`, `ZoningAnalysisPanel.tsx`. Surviving comments now explain *why*, not *what*.
+1. Add `knip.json` so future runs work without the sandbox workaround
+2. Delete 9 source files + 22 UI primitives = **31 files removed**
+3. Remove 18 entries from `package.json` dependencies
+4. Run `tsc --noEmit` — must pass with 0 errors
+5. Re-run knip — confirm "Unused files: 0" (apart from the still-ignored playwright/edge-function set)
 
-## Verification
-- `tsc --noEmit`: ✅ 0 errors
-- `madge --circular`: ✅ 0 cycles
-- All edits stayed within the scope of each subagent
+## Expected outcome
+- 31 fewer source files
+- 18 fewer npm packages
+- Clean knip baseline that runs in CI without the playwright module being installed
+
