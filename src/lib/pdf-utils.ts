@@ -52,6 +52,21 @@ export async function renderPDFPagesToImages(
 }
 
 /**
+ * Render a single PDF file at higher DPI for AI vision analysis.
+ * Returns base64 PNGs only (display variant in renderPDFPagesToImages stays at 150 DPI).
+ * 220 DPI gives the model meaningfully more pixel detail to localize against
+ * without blowing up memory the way 300 DPI would.
+ */
+export async function renderPDFPagesForVision(
+  file: File,
+  maxPages = 10,
+  dpi = 220
+): Promise<string[]> {
+  const images = await renderPDFPagesToImages(file, maxPages, dpi);
+  return images.map((img) => img.base64);
+}
+
+/**
  * Render just the first page (title block) at higher resolution for extraction.
  */
 export async function renderTitleBlock(file: File): Promise<string> {
