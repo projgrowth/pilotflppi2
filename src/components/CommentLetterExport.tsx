@@ -358,11 +358,12 @@ function printViaIframe(html: string) {
 
 async function persistToStorage(html: string, projectId: string | undefined, filename: string) {
   if (!projectId) return;
+  // Best-effort archive copy; download path still works on failure.
   try {
     const blob = new Blob([html], { type: "text/html" });
     await supabase.storage.from("documents").upload(`projects/${projectId}/${filename}`, blob, { upsert: true });
   } catch {
-    // silent — download still works even if storage save fails
+    /* archive failed; user already has the downloaded copy */
   }
 }
 
