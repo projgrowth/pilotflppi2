@@ -91,6 +91,7 @@ export function NewPlanReviewWizard({ open, onOpenChange, onComplete, preselecte
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [extractProgress, setExtractProgress] = useState(0);
+  const [geocoding, setGeocoding] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Upload state
