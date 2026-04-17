@@ -479,12 +479,14 @@ export function PlanMarkupViewer({
                       <div className={cn(
                         "relative rounded-full border-2 transition-all",
                         (isMed || isLow) && "border-dashed",
-                        isActive
-                          ? `h-7 w-7 bg-${colorVar}/20 shadow-[0_0_12px_hsl(var(--${colorVar})/0.5)]`
-                          : `h-5 w-5 bg-${colorVar}/10 hover:bg-${colorVar}/20`,
+                        isActive ? "h-7 w-7" : "h-5 w-5",
                         isLow
-                          ? (isActive ? "border-warning" : "border-warning/70 hover:border-warning")
-                          : (isActive ? "border-destructive" : "border-destructive/70 hover:border-destructive"),
+                          ? (isActive
+                              ? "bg-warning/20 border-warning shadow-[0_0_12px_hsl(var(--warning)/0.5)]"
+                              : "bg-warning/10 hover:bg-warning/20 border-warning/70 hover:border-warning")
+                          : (isActive
+                              ? "bg-destructive/20 border-destructive shadow-[0_0_12px_hsl(var(--destructive)/0.5)]"
+                              : "bg-destructive/10 hover:bg-destructive/20 border-destructive/70 hover:border-destructive"),
                       )}>
                         {/* center dot */}
                         <div className={cn(
