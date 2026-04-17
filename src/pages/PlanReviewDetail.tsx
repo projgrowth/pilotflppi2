@@ -700,6 +700,62 @@ export default function PlanReviewDetail() {
     }
   }, [pageImages.length, review]);
 
+  // ── Reviewer keyboard shortcuts (global to the page) ───────────────────
+  // J / K       — next / prev finding
+  // R           — reposition active pin
+  // S           — mark resolved
+  // X           — mark deferred
+  // O           — mark open
+  // Skip when typing in inputs/textareas; the viewer handles its own arrows/+/-/0.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const findingsList = (review?.ai_findings as Finding[] | undefined) || [];
+      if (findingsList.length === 0) return;
+
+      const cur = activeFindingIndex;
+      const last = findingsList.length - 1;
+
+      switch (e.key.toLowerCase()) {
+        case "j": {
+          e.preventDefault();
+          const next = cur === null ? 0 : Math.min(last, cur + 1);
+          setActiveFindingIndex(next);
+          break;
+        }
+        case "k": {
+          e.preventDefault();
+          const prev = cur === null ? 0 : Math.max(0, cur - 1);
+          setActiveFindingIndex(prev);
+          break;
+        }
+        case "r": {
+          if (cur !== null && findingsList[cur]?.markup) {
+            e.preventDefault();
+            setRepositioningIndex(cur);
+          }
+          break;
+        }
+        case "s": {
+          if (cur !== null) { e.preventDefault(); updateFindingStatus(cur, "resolved"); }
+          break;
+        }
+        case "x": {
+          if (cur !== null) { e.preventDefault(); updateFindingStatus(cur, "deferred"); }
+          break;
+        }
+        case "o": {
+          if (cur !== null) { e.preventDefault(); updateFindingStatus(cur, "open"); }
+          break;
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeFindingIndex, review, updateFindingStatus]);
+
   if (isLoading) {
     return (
       <div className="flex flex-col h-[calc(100vh-0px)]">
