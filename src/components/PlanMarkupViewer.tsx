@@ -443,7 +443,6 @@ export function PlanMarkupViewer({
                   //  low    → dashed amber + 10%-radius search ring
                   const isLow = confidence === "low";
                   const isMed = confidence === "medium";
-                  const colorVar = isLow ? "warning" : "destructive";
 
                   return (
                     <div
