@@ -1,26 +1,19 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { StatusChip } from "@/components/StatusChip";
 import { DeadlineRing } from "@/components/DeadlineRing";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { NewPlanReviewWizard } from "@/components/NewPlanReviewWizard";
 import { useProjects, getDaysElapsed, getDaysRemaining } from "@/hooks/useProjects";
-import { useContractors } from "@/hooks/useContractors";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Search, ChevronRight, FolderKanban, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 const filters = ["All", "Plan Review", "Inspection", "Pending", "Complete"] as const;
 
@@ -30,15 +23,6 @@ const FLORIDA_COUNTIES = [
   "polk", "seminole", "pasco", "osceola", "st-lucie", "escambia", "marion",
 ];
 
-const TRADE_TYPES = [
-  { value: "building", label: "Building (General)" },
-  { value: "structural", label: "Structural" },
-  { value: "mechanical", label: "Mechanical" },
-  { value: "electrical", label: "Electrical" },
-  { value: "plumbing", label: "Plumbing" },
-  { value: "roofing", label: "Roofing" },
-  { value: "fire", label: "Fire Protection" },
-];
 
 export default function Projects() {
   const [activeFilter, setActiveFilter] = useState<typeof filters[number]>("All");
@@ -46,70 +30,17 @@ export default function Projects() {
   const [countyFilter, setCountyFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"newest" | "deadline">("newest");
   const { data: projects, isLoading } = useProjects();
-  const { data: contractors } = useContractors();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [name, setName] = useState("");
-  const [address, setAddress] = useState("");
-  const [county, setCounty] = useState("");
-  const [jurisdiction, setJurisdiction] = useState("");
-  const [tradeType, setTradeType] = useState("building");
-  const [contractorId, setContractorId] = useState("");
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("action") === "new") {
-      setDialogOpen(true);
+      setWizardOpen(true);
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams]);
-
-  const resetForm = () => {
-    setName(""); setAddress(""); setCounty(""); setJurisdiction(""); setTradeType("building"); setContractorId("");
-  };
-
-  const handleCreate = async () => {
-    const trimmedName = name.trim().slice(0, 200);
-    const trimmedAddress = address.trim().slice(0, 500);
-    const trimmedJurisdiction = jurisdiction.trim().slice(0, 200);
-    if (!trimmedName || !trimmedAddress) {
-      toast.error("Name and address are required");
-      return;
-    }
-    setSaving(true);
-    try {
-      const deadlineAt = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString();
-      const { data, error } = await supabase
-        .from("projects")
-        .insert({
-          name: trimmedName,
-          address: trimmedAddress,
-          county: county || "",
-          jurisdiction: trimmedJurisdiction,
-          trade_type: tradeType,
-          contractor_id: contractorId || null,
-          status: "intake" as const,
-          notice_filed_at: new Date().toISOString(),
-          deadline_at: deadlineAt,
-          services: ["plan_review"],
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      toast.success("Project created");
-      setDialogOpen(false);
-      resetForm();
-      navigate(`/projects/${data.id}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create project");
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const filtered = (projects || []).filter((p) => {
     if (search) {
@@ -137,7 +68,7 @@ export default function Projects() {
       <PageHeader
         title="Projects"
         actions={
-          <Button className="bg-accent text-accent-foreground hover:bg-accent/90" onClick={() => setDialogOpen(true)}>
+          <Button className="bg-accent text-accent-foreground hover:bg-accent/90" onClick={() => setWizardOpen(true)}>
             <Plus className="h-4 w-4 mr-2" /> New Project
           </Button>
         }
@@ -245,75 +176,12 @@ export default function Projects() {
         )}
       </Card>
 
-      {/* New Project Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>New Project</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="project-name">Project Name *</Label>
-              <Input id="project-name" placeholder="Oceanview Residences" maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="project-address">Address *</Label>
-              <Input id="project-address" placeholder="123 Main St, Miami, FL 33131" maxLength={500} value={address} onChange={(e) => setAddress(e.target.value)} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>County</Label>
-                <Select value={county} onValueChange={setCounty}>
-                  <SelectTrigger><SelectValue placeholder="Select county" /></SelectTrigger>
-                  <SelectContent>
-                    {FLORIDA_COUNTIES.map((c) => (
-                      <SelectItem key={c} value={c}>{c.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="project-jurisdiction">Jurisdiction</Label>
-                <Input id="project-jurisdiction" placeholder="City of Miami" maxLength={200} value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Trade Type</Label>
-                <Select value={tradeType} onValueChange={setTradeType}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {TRADE_TYPES.map((t) => (
-                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Contractor</Label>
-                <Select value={contractorId} onValueChange={setContractorId}>
-                  <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
-                  <SelectContent>
-                    {(contractors || []).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>Cancel</Button>
-            <Button
-              className="bg-accent text-accent-foreground hover:bg-accent/90"
-              onClick={handleCreate}
-              disabled={saving || !name.trim() || !address.trim()}
-            >
-              {saving ? "Creating..." : "Create Project"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Upload-first wizard: AI extracts project info from the title block */}
+      <NewPlanReviewWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        onComplete={(_reviewId, projectId) => navigate(`/projects/${projectId}`)}
+      />
     </div>
   );
 }
