@@ -1,26 +1,19 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { StatusChip } from "@/components/StatusChip";
 import { DeadlineRing } from "@/components/DeadlineRing";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { NewPlanReviewWizard } from "@/components/NewPlanReviewWizard";
 import { useProjects, getDaysElapsed, getDaysRemaining } from "@/hooks/useProjects";
-import { useContractors } from "@/hooks/useContractors";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Search, ChevronRight, FolderKanban, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 const filters = ["All", "Plan Review", "Inspection", "Pending", "Complete"] as const;
 
@@ -46,70 +39,17 @@ export default function Projects() {
   const [countyFilter, setCountyFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"newest" | "deadline">("newest");
   const { data: projects, isLoading } = useProjects();
-  const { data: contractors } = useContractors();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [name, setName] = useState("");
-  const [address, setAddress] = useState("");
-  const [county, setCounty] = useState("");
-  const [jurisdiction, setJurisdiction] = useState("");
-  const [tradeType, setTradeType] = useState("building");
-  const [contractorId, setContractorId] = useState("");
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("action") === "new") {
-      setDialogOpen(true);
+      setWizardOpen(true);
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams]);
-
-  const resetForm = () => {
-    setName(""); setAddress(""); setCounty(""); setJurisdiction(""); setTradeType("building"); setContractorId("");
-  };
-
-  const handleCreate = async () => {
-    const trimmedName = name.trim().slice(0, 200);
-    const trimmedAddress = address.trim().slice(0, 500);
-    const trimmedJurisdiction = jurisdiction.trim().slice(0, 200);
-    if (!trimmedName || !trimmedAddress) {
-      toast.error("Name and address are required");
-      return;
-    }
-    setSaving(true);
-    try {
-      const deadlineAt = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString();
-      const { data, error } = await supabase
-        .from("projects")
-        .insert({
-          name: trimmedName,
-          address: trimmedAddress,
-          county: county || "",
-          jurisdiction: trimmedJurisdiction,
-          trade_type: tradeType,
-          contractor_id: contractorId || null,
-          status: "intake" as const,
-          notice_filed_at: new Date().toISOString(),
-          deadline_at: deadlineAt,
-          services: ["plan_review"],
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      toast.success("Project created");
-      setDialogOpen(false);
-      resetForm();
-      navigate(`/projects/${data.id}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create project");
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const filtered = (projects || []).filter((p) => {
     if (search) {
