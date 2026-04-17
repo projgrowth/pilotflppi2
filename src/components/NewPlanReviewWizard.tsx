@@ -544,7 +544,38 @@ export function NewPlanReviewWizard({ open, onOpenChange, onComplete, preselecte
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Address *</Label>
-                  <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="e.g. 123 Main St, Miami, FL" />
+                  <div className="flex gap-2">
+                    <Input
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      placeholder="e.g. 123 Main St, Miami, FL"
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!address || geocoding}
+                      onClick={async () => {
+                        setGeocoding(true);
+                        try {
+                          const geo = await geocodeAddress(address);
+                          if (geo) {
+                            setCounty(geo.county);
+                            if (geo.jurisdiction) setJurisdiction(geo.jurisdiction);
+                            toast.success(`Detected ${geo.countyLabel} County${geo.jurisdiction ? ` — ${geo.jurisdiction}` : ""}`);
+                          } else {
+                            toast.error("Could not determine county from address");
+                          }
+                        } finally {
+                          setGeocoding(false);
+                        }
+                      }}
+                      title="Auto-detect county & jurisdiction"
+                    >
+                      {geocoding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MapPin className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">County *</Label>
