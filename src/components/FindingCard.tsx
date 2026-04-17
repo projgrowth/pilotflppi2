@@ -5,28 +5,9 @@ import { cn } from "@/lib/utils";
 import { useState, forwardRef } from "react";
 import type { FindingStatus } from "@/components/FindingStatusFilter";
 import type { FindingHistoryEntry } from "@/hooks/useFindingHistory";
+import type { Finding } from "@/types";
 
-interface MarkupData {
-  page_index: number;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  annotations?: { x: number; y: number; width: number; height: number; label?: string }[];
-}
-
-export interface Finding {
-  severity: string;
-  discipline?: string;
-  code_ref: string;
-  county_specific?: boolean;
-  page: string;
-  description: string;
-  recommendation: string;
-  confidence?: string;
-  markup?: MarkupData;
-  resolved?: boolean;
-}
+export type { Finding } from "@/types";
 
 const severityConfig: Record<string, { icon: typeof AlertTriangle; dot: string; badge: string }> = {
   critical: {
