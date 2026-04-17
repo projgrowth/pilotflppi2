@@ -1,73 +1,68 @@
 
 
-# Document Generators Hanging — Root Cause & Fix Plan
+# Why the red boxes don't land where the comments say
 
-## What I found across all 3 generators
+## Root causes (confirmed in code)
 
-### 1. AI Comment Letter (Plan Review Detail) — **stream silently dies**
-`generateCommentLetter` in `PlanReviewDetail.tsx` calls `streamAI` from `src/lib/ai.ts`. The stream parser has a fragile flow:
-- No timeout — if the upstream Lovable AI gateway stalls, the spinner runs forever.
-- The `[DONE]` sentinel is checked, but on a partial JSON line the code re-buffers `line + "\n" + buffer` then `break`s — if the next chunk never arrives, `onDone()` is never called.
-- The edge function (`supabase/functions/ai/index.ts`) returns `response.body` directly when `stream:true`. If the gateway times out mid-stream, the client's `reader.read()` sits forever waiting for a chunk that won't come.
-- No `AbortController` — user can't cancel.
+The pin-placement system has 4 distinct alignment problems stacking on top of each other:
 
-### 2. Documents page (`/documents`) — **dialog opens with empty preview**
-`DocumentsPage.handleGenerate` only generates HTML for `"Review Comment Letter"`. The other 4 docs (Plan Compliance Affidavit, Notice to Building Official, Log of Approved Documents, Inspection Record) just open the dialog and show "Document preview will be generated…" — they have **no generator implementation**. To the user this looks like the generator is stuck.
+### 1. The model is guessing coordinates by eye, on a downscaled image
+`renderPDFPagesToImages` rasterizes each PDF page at **150 DPI** then sends the resulting PNG to Gemini as a flat image. The model has no native PDF coordinate system to work with — it eyeballs pixel positions and converts to a 0-100% guess. On a dense E-sized sheet (36"×24") rendered at 150 DPI, a 5% width box covers ~270 px, which is a *huge* region. Off by 4% horizontally → off by half a sheet.
 
-### 3. County Document Package + Save as PDF — **iframe print never fires when popup is blocked or onload misses**
-`printViaIframe` in both `CommentLetterExport.tsx` and `CountyDocumentPackage.tsx`:
-- Sets `iframe.onload` AFTER calling `doc.write/close()`. If the document loads synchronously (very small HTML), `onload` may fire before the handler is attached → print never happens, iframe stays hidden in DOM forever.
-- No error path, no toast, no fallback download. User clicks → toast says "select Save as PDF" → nothing visible happens.
-- `persistToStorage` swallows all errors silently inside an empty catch, so storage failures are invisible too.
+### 2. The page-index gets corrupted on multi-file uploads
+In `renderDocumentPages` (PlanReviewDetail.tsx line 272), images from each PDF are concatenated into `allImages` and re-indexed sequentially across files:
+```
+allImages.push(...images.map((img, idx) => ({ ...img, pageIndex: allImages.length + idx })))
+```
+But the AI is called with **all images flat in one array** (line 315: `images.map((img) => img.base64)`) and the prompt tells it `page_index: <0-based index of the image where the issue is>`. The model doesn't know which file each image came from — and it tends to anchor `page_index: 0` because the title block is the first image regardless of file. So findings about Sheet S-201 (image #4) get pinned to the cover sheet of file #1.
 
----
+### 3. No sheet/title-block grounding
+The AI gets the raw image but is never told "this image is sheet A-201". It invents a `page` field (e.g. "S-101") *and* a `page_index` independently — and the two often disagree. The viewer ignores `page` entirely and trusts only `page_index`, so the user sees the comment say "Sheet S-101" while the box is actually drawn on whatever page_index the model wrote.
 
-## Fix plan (3 patches, no schema/edge-function changes)
+### 4. Bounding-box dimensions are arbitrary
+The schema only requires `x, y, width, height` as percentages with no upper bound on box size and no lower bound on precision. The system prompt suggests `width 5-30, height 3-20`, and the model defaults to ~10×5 boxes that visually cover an entire detail callout instead of the specific element. There's no concept of a *pin* (point) vs a *region* (box) — everything is a fat rectangle.
 
-### Patch A — Make `streamAI` cancellable & timeout-safe (`src/lib/ai.ts`)
-- Accept an optional `AbortSignal`.
-- Add a 60s inactivity watchdog: if no SSE chunk arrives for 60s, abort the reader and reject with `"AI stream stalled"`.
-- Always call `onDone()` in a `finally` block so the spinner clears even on error.
-- Fix the partial-line re-buffer bug: when JSON.parse fails, leave the partial in `buffer` and exit the inner loop without prepending the consumed line again (avoids duplicate parse attempts on the same byte).
+## What I propose to fix (4 patches, prompt + code, no schema changes)
 
-### Patch B — Make `printViaIframe` reliable (one shared util in `src/lib/print-utils.ts`)
-- Extract the helper out of both files into `src/lib/print-utils.ts` and import it in `CommentLetterExport.tsx` and `CountyDocumentPackage.tsx` (kills the duplicate too).
-- Attach `onload` BEFORE `doc.write()`, and use `srcdoc` instead of write/close for synchronous-friendly load.
-- Wrap `iframe.contentWindow?.print()` in a try/catch; on failure, automatically trigger a `.html` download fallback and toast "Print dialog blocked — file downloaded instead."
-- Add a 10s safety timer to remove the iframe even if `onload` never fires.
+### Patch A — Tighten the prompt with sheet grounding & precision rules
+Rewrite the `plan_review_check_visual` system prompt to:
+- **Index every image by its sheet name first**: model returns a `page` string that MUST match what's visible in the title block of that image, AND the `page_index` MUST be the array index of that exact image.
+- **Internal reasoning step**: "Before each finding, identify (a) which image you're looking at, (b) the sheet number visible on it, (c) the *specific element* (a callout, dimension, note block, detail bubble) the deficiency relates to."
+- **Box sizing rules**: pin-style box for point issues (max 4% × 4%), region box only when the finding spans a clearly bounded area (max 15% × 10%). Center the box on the element, not on the surrounding whitespace.
+- **Anchor descriptions**: every `description` must reference a visual landmark on the sheet ("at the NW corner of the foundation plan, near grid B-2", "in the door schedule, row 4") so the user can verify the pin even if it drifts.
 
-### Patch C — Wire up the 4 missing document generators on `/documents`
-Three options here, listed in order of complexity:
+### Patch B — Send page metadata to the model + validate page_index in code
+- In `renderDocumentPages`, keep a `fileIndex` and `pageInFile` on each image so we can round-trip.
+- When calling the AI, also send a parallel `image_manifest` array: `[{ index: 0, file: "Architectural.pdf", page_in_file: 1 }, ...]` so the model is grounded to which file/page each image is.
+- After parsing findings, **validate** every `markup.page_index` is in range. If a finding's `page` (sheet name string) clearly references a different page than `page_index`, log a warning and try to remap by matching the sheet string against any image where the title-block OCR matches. Drop the markup (showing finding without a pin) rather than show a wrong pin.
 
-**Recommended: implement them as static HTML templates** (matches the existing comment-letter pattern in the same file). Add four `generate*Html()` functions:
-- `generatePlanComplianceAffidavitHtml(project, firm)` — short statutory affidavit per F.S. 553.791.
-- `generateNoticeToBuildingOfficialHtml(project, firm)` — required pre-service notice with firm credentials.
-- `generateApprovedDocumentsLogHtml(project, planReviews)` — table of approved sheets pulled from `plan_reviews` rows where `qc_status='qc_approved'`.
-- `generateInspectionRecordHtml(project, inspections)` — pulls from `inspections` table.
+### Patch C — Render at higher DPI for vision, lower DPI for display
+Two-tier rendering:
+- **Display canvas**: 150 DPI as today (fast, small base64 in memory).
+- **AI vision**: 220 DPI for the images we actually send to Gemini — gives the model meaningfully more pixel detail to localize against. Pages stay in memory only during the AI call, then GC'd.
 
-Update `handleGenerate` to dispatch by `docTitle` and set `generatedHtml`. Reuse the existing preview/copy/download UI — no new components needed.
-
-Add two new hooks (or inline queries): pull `plan_reviews` and `inspections` for the selected project so the Log and Record can populate.
-
----
+### Patch D — Add a "pin" affordance + sheet label on each annotation
+In `PlanMarkupViewer`:
+- If a finding's box is ≤ 4% × 4%, render it as a **target crosshair pin** (small circle with crosshair) instead of a rectangle — visually communicates "approximate point" rather than "this exact rectangle is wrong".
+- Show the sheet name (`finding.page`) on the annotation badge alongside the number, so users see "S-201 · #3" — they can immediately verify they're on the correct sheet even if the pin is off by a few percent.
+- Add a "Wrong location?" link in the FindingCard that opens a one-click manual reposition mode (drag the pin to the correct spot, save back to `ai_findings.markup`). This feeds the existing AI learning loop so future runs improve.
 
 ## Files touched
-- `src/lib/ai.ts` — add abort + watchdog + finally
-- `src/lib/print-utils.ts` — **new**, shared `printViaIframe` with fallback
-- `src/components/CommentLetterExport.tsx` — import from new util, drop local copy
-- `src/components/CountyDocumentPackage.tsx` — import from new util, drop local copy
-- `src/pages/DocumentsGen.tsx` — add 4 HTML generators + queries for plan_reviews/inspections + dispatch
-- `src/pages/PlanReviewDetail.tsx` — pass `AbortController` to `streamAI`, add Cancel button on the letter panel
+- `supabase/functions/ai/index.ts` — rewrite `plan_review_check_visual` system prompt + add explicit sheet-grounding instructions in the tool schema descriptions
+- `src/lib/pdf-utils.ts` — add `renderPDFPagesForVision(file, dpi=220)` variant; keep current 150 DPI for display
+- `src/pages/PlanReviewDetail.tsx` — track `fileIndex`/`pageInFile` per image, build `image_manifest`, send vision-DPI images to AI, validate `page_index` post-parse
+- `src/components/PlanMarkupViewer.tsx` — pin-vs-box rendering based on box size, sheet-label badge, manual reposition mode
+- `src/components/FindingCard.tsx` — add "Wrong location? Reposition" action
+- New migration: optional `human_corrected_markup` boolean column on `review_flags` so the learning loop knows which pins are user-corrected gold data
 
 ## What I'm NOT doing
-- No edge function changes (per project constraints; the AI function itself is fine — the hang is on the client stream reader).
-- No queue/job-table architecture. The longest real operation is an AI stream; a 60s watchdog + cancel button is the right surface area for that, not a full background-job system.
-- No changes to `supabase/config.toml`, routing, or auth.
+- Not switching to a different vision model (Gemini 2.5 Pro is fine; the issue is grounding, not model quality)
+- Not building a full PDF-coordinate extraction system (would require server-side PDF parsing — disproportionate for the gain)
+- Not removing the box rendering — some findings genuinely cover a region (a whole missing schedule, a whole egress path) and need a box
 
 ## Verification after implementation
-- Generate Comment Letter on a plan review → progressive text appears → finishes → spinner clears.
-- Force-stall test: kill network mid-stream → spinner clears within 60s with a "stream stalled" toast, Cancel button works.
-- Click each of the 5 cards on `/documents` → preview renders within ~100ms, Copy/Download both work.
-- Click "Save as PDF" and "Docs → Inspection Readiness Packet" → print dialog opens; if blocked, `.html` falls back to download.
-- `tsc --noEmit` passes.
+- Re-run AI check on a 3-file plan set — every finding's sheet badge matches the sheet visible in the viewer
+- Findings about sheet S-201 land on S-201, not the cover sheet of file #1
+- Point-style issues (missing dimension, missing seal) render as pins, not 30% × 20% rectangles
+- Manual reposition saves back to DB and pin appears in the corrected location on next load
 
