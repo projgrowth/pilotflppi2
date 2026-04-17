@@ -185,75 +185,12 @@ export default function Projects() {
         )}
       </Card>
 
-      {/* New Project Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>New Project</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="project-name">Project Name *</Label>
-              <Input id="project-name" placeholder="Oceanview Residences" maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="project-address">Address *</Label>
-              <Input id="project-address" placeholder="123 Main St, Miami, FL 33131" maxLength={500} value={address} onChange={(e) => setAddress(e.target.value)} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>County</Label>
-                <Select value={county} onValueChange={setCounty}>
-                  <SelectTrigger><SelectValue placeholder="Select county" /></SelectTrigger>
-                  <SelectContent>
-                    {FLORIDA_COUNTIES.map((c) => (
-                      <SelectItem key={c} value={c}>{c.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="project-jurisdiction">Jurisdiction</Label>
-                <Input id="project-jurisdiction" placeholder="City of Miami" maxLength={200} value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Trade Type</Label>
-                <Select value={tradeType} onValueChange={setTradeType}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {TRADE_TYPES.map((t) => (
-                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Contractor</Label>
-                <Select value={contractorId} onValueChange={setContractorId}>
-                  <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
-                  <SelectContent>
-                    {(contractors || []).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>Cancel</Button>
-            <Button
-              className="bg-accent text-accent-foreground hover:bg-accent/90"
-              onClick={handleCreate}
-              disabled={saving || !name.trim() || !address.trim()}
-            >
-              {saving ? "Creating..." : "Create Project"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Upload-first wizard: AI extracts project info from the title block */}
+      <NewPlanReviewWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        onComplete={(_reviewId, projectId) => navigate(`/projects/${projectId}`)}
+      />
     </div>
   );
 }
