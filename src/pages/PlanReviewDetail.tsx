@@ -279,6 +279,9 @@ export default function PlanReviewDetail() {
     setRenderProgress(0);
     try {
       const allImages: PDFPageImage[] = [];
+      const allTextItems: PDFTextItem[][] = [];
+      let totalSheetsAcrossFiles = 0;
+      let renderedSheetsAcrossFiles = 0;
       for (let fi = 0; fi < r.file_urls.length; fi++) {
         const storedPath = r.file_urls[fi];
         if (!storedPath) continue;
@@ -294,7 +297,26 @@ export default function PlanReviewDetail() {
         const blob = await response.blob();
         const fileName = decodeURIComponent(filePath.split("/").pop() || `doc-${fi}.pdf`);
         const file = new File([blob], fileName, { type: "application/pdf" });
+
+        // Track total page count for the cap banner before rendering caps to 10.
+        try {
+          const total = await getPDFPageCount(file);
+          totalSheetsAcrossFiles += total;
+          renderedSheetsAcrossFiles += Math.min(total, 10);
+        } catch {
+          // If page count fails, fall through; render still attempts.
+        }
+
         const images = await renderPDFPagesToImages(file, 10, 150);
+        // Extract real vector text + bboxes from the same pages — this is the
+        // ground-truth coordinate index used to snap AI pin guesses to actual
+        // visible callouts/dimensions/notes.
+        let textItems: PDFTextItem[][] = [];
+        try {
+          textItems = await extractPagesTextItems(file, 10);
+        } catch {
+          textItems = images.map(() => []);
+        }
         // Keep file/page provenance on each image so we can pass an image_manifest to the AI
         // and validate page_index round-trips correctly.
         const baseIndex = allImages.length;
@@ -307,9 +329,15 @@ export default function PlanReviewDetail() {
             pageInFile: idx + 1,
           }))
         );
+        // Pad text items array if extraction returned fewer pages than images.
+        for (let idx = 0; idx < images.length; idx++) {
+          allTextItems.push(textItems[idx] || []);
+        }
         setRenderProgress(((fi + 1) / r.file_urls.length) * 100);
       }
       setPageImages(allImages);
+      setPageTextItems(allTextItems);
+      setPageCapInfo({ total: totalSheetsAcrossFiles, rendered: renderedSheetsAcrossFiles });
       return allImages;
     } catch {
       return [];
