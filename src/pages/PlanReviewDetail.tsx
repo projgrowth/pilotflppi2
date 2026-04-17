@@ -1111,10 +1111,12 @@ export default function PlanReviewDetail() {
                           counts={{ all: findings.length, open: openCount, resolved: resolvedCount, deferred: deferredCount }}
                           onFilterChange={setStatusFilter}
                         />
-                        {showDiff && previousFindings.length > 0 && (
-                          <div className="flex items-center gap-3 text-2xs bg-muted/30 rounded-md px-2 py-1">
-                            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-accent" /> New</span>
-                            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" /> Carried</span>
+                        {hasRoundDiff && (
+                          <div className="rounded-md border border-accent/30 bg-accent/5 px-2.5 py-1.5 flex items-center gap-3 text-2xs">
+                            <span className="font-semibold text-accent uppercase tracking-wide">Round {review.round} vs R{review.round - 1}</span>
+                            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-accent" /> <strong>{newCount}</strong> new</span>
+                            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" /> <strong>{persistedCount}</strong> persisted</span>
+                            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-success" /> <strong>{newlyResolvedCount}</strong> resolved since R{review.round - 1}</span>
                           </div>
                         )}
                         <Accordion type="multiple" defaultValue={DISCIPLINE_ORDER.filter((d) => filteredGrouped[d])} className="space-y-1">
