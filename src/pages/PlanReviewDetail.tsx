@@ -1144,7 +1144,7 @@ export default function PlanReviewDetail() {
                                     const diffStatus = diffMap.get(gi);
                                     return (
                                       <div key={i} className="relative">
-                                        {showDiff && diffStatus && (
+                                        {hasRoundDiff && diffStatus && (
                                           <div className={cn(
                                             "absolute -left-2 top-1/2 -translate-y-1/2 w-1 h-1 rounded-full z-10",
                                             diffStatus === "new" ? "bg-accent" : "bg-muted-foreground/40"
