@@ -4,7 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { callAI, streamAI } from "@/lib/ai";
-import { renderPDFPagesToImages, renderPDFPagesForVision, type PDFPageImage } from "@/lib/pdf-utils";
+import { renderPDFPagesToImages, renderPDFPagesForVisionWithGrid, gridCellToCenter, type PDFPageImage } from "@/lib/pdf-utils";
 import { useFirmSettings } from "@/hooks/useFirmSettings";
 import { useFindingHistory, logFindingStatusChange } from "@/hooks/useFindingHistory";
 import { useAuth } from "@/contexts/AuthContext";
@@ -141,7 +141,16 @@ export default function PlanReviewDetail() {
   const handleRepositionConfirm = useCallback(async (idx: number, newMarkup: { page_index: number; x: number; y: number; width: number; height: number }) => {
     if (!review) return;
     const current = (review.ai_findings as Finding[]) || [];
-    const updated = current.map((f, i) => i === idx ? { ...f, markup: { ...(f.markup || {}), ...newMarkup } } : f);
+    // A human-placed pin is always high confidence and must never be downgraded on reload.
+    const updated = current.map((f, i) => i === idx ? {
+      ...f,
+      markup: {
+        ...(f.markup || {}),
+        ...newMarkup,
+        pin_confidence: "high" as const,
+        user_repositioned: true,
+      },
+    } : f);
     await supabase.from("plan_reviews").update({ ai_findings: JSON.parse(JSON.stringify(updated)) }).eq("id", review.id);
     queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
     setRepositioningIndex(null);
@@ -305,7 +314,9 @@ export default function PlanReviewDetail() {
   };
 
   /**
-   * Render the same PDFs at higher DPI for AI vision. Returns base64 strings only,
+   * Render the same PDFs at higher DPI for AI vision, with a 10×10 labelled grid
+   * overlaid on each page. The model uses the visible cell labels (e.g. "H7") to
+   * anchor each finding to a known coordinate cell. Returns base64 strings only,
    * in the same order as `displayImages`, so page_index lines up.
    */
   const renderVisionImages = async (r: PlanReviewRow): Promise<string[]> => {
@@ -323,7 +334,7 @@ export default function PlanReviewDetail() {
       const response = await fetch(signedData.signedUrl);
       const blob = await response.blob();
       const file = new File([blob], `vision-${filePath}`, { type: "application/pdf" });
-      const base64s = await renderPDFPagesForVision(file, 10, 220);
+      const base64s = await renderPDFPagesForVisionWithGrid(file, 10, 220);
       visionImages.push(...base64s);
     }
     return visionImages;
@@ -391,7 +402,7 @@ export default function PlanReviewDetail() {
             try { findings = match ? JSON.parse(match[0]) : []; } catch { findings = []; }
           }
 
-          // ── Validate & repair page_index against manifest ──
+          // ── Validate & repair page_index against manifest, anchor pin to grid_cell ──
           const maxIndex = displayImages.length - 1;
           findings = findings.map((f) => {
             if (!f.markup) return f;
@@ -413,16 +424,57 @@ export default function PlanReviewDetail() {
               const { markup: _drop, ...rest } = f;
               return rest as Finding;
             }
-            // Clamp box dimensions so a misbehaving model can't paint a 50% × 50% rectangle.
+
             const m = f.markup;
-            const cleaned = {
-              page_index: pi,
-              x: Math.max(0, Math.min(98, m.x ?? 0)),
-              y: Math.max(0, Math.min(98, m.y ?? 0)),
-              width: Math.max(1, Math.min(15, m.width ?? 4)),
-              height: Math.max(1, Math.min(10, m.height ?? 4)),
+            const gridCell: string | undefined = typeof m.grid_cell === "string" ? m.grid_cell.trim().toUpperCase() : undefined;
+            const nearestText: string = typeof m.nearest_text === "string" ? m.nearest_text.trim() : "";
+            const cellCenter = gridCellToCenter(gridCell);
+
+            // Clamp box dimensions so a misbehaving model can't paint a 50% × 50% rectangle.
+            let x = Math.max(0, Math.min(98, m.x ?? 0));
+            let y = Math.max(0, Math.min(98, m.y ?? 0));
+            const width = Math.max(1, Math.min(15, m.width ?? 4));
+            const height = Math.max(1, Math.min(10, m.height ?? 4));
+
+            // If we have a valid grid cell, force the BOX CENTER to sit inside that cell,
+            // clamped to ±5% of the cell center (i.e. somewhere within the cell). This
+            // bounds worst-case error to one grid cell (~10%) when the model returns
+            // an x/y that drifts outside its own anchor.
+            if (cellCenter) {
+              const desiredCx = Math.max(cellCenter.x - 5, Math.min(cellCenter.x + 5, x + width / 2));
+              const desiredCy = Math.max(cellCenter.y - 5, Math.min(cellCenter.y + 5, y + height / 2));
+              x = Math.max(0, Math.min(100 - width, desiredCx - width / 2));
+              y = Math.max(0, Math.min(100 - height, desiredCy - height / 2));
+            }
+
+            // Confidence:
+            //  - high: grid_cell + non-empty nearest_text (both anchors agree to model-side)
+            //  - medium: grid_cell only
+            //  - low: neither (raw guess)
+            // (User-repositioned pins are forced to "high" elsewhere on save.)
+            let pin_confidence: "high" | "medium" | "low";
+            if (cellCenter && nearestText.length >= 2) {
+              pin_confidence = "high";
+            } else if (cellCenter) {
+              pin_confidence = "medium";
+            } else {
+              pin_confidence = "low";
+            }
+
+            return {
+              ...f,
+              markup: {
+                ...m,
+                page_index: pi,
+                x,
+                y,
+                width,
+                height,
+                grid_cell: gridCell,
+                nearest_text: nearestText,
+                pin_confidence,
+              },
             };
-            return { ...f, markup: { ...m, ...cleaned } };
           });
         }
       }
