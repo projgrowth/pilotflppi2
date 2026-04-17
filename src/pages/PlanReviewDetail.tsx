@@ -781,7 +781,7 @@ export default function PlanReviewDetail() {
                                   {group.map((finding, i) => {
                                     const gi = globalIndexMap.get(finding)!;
                                     return (
-                                      <FindingCard key={i} ref={(el) => { if (el) findingRefs.current.set(gi, el); }} finding={finding} index={i} globalIndex={gi} isActive={activeFindingIndex === gi} onLocateClick={() => { handleLocateFinding(gi); setMobileTab("plans"); }} animationDelay={i * 40} status={findingStatuses[gi] || "open"} onStatusChange={(status) => updateFindingStatus(gi, status)} history={(findingHistory || []).filter(h => h.finding_index === gi)} />
+                                      <FindingCard key={i} ref={(el) => { if (el) findingRefs.current.set(gi, el); }} finding={finding} index={i} globalIndex={gi} isActive={activeFindingIndex === gi} onLocateClick={() => { handleLocateFinding(gi); setMobileTab("plans"); }} onRepositionClick={() => { setRepositioningIndex(gi); setMobileTab("plans"); }} animationDelay={i * 40} status={findingStatuses[gi] || "open"} onStatusChange={(status) => updateFindingStatus(gi, status)} history={(findingHistory || []).filter(h => h.finding_index === gi)} />
                                     );
                                   })}
                                 </AccordionContent>
@@ -995,6 +995,7 @@ export default function PlanReviewDetail() {
                                           globalIndex={gi}
                                           isActive={activeFindingIndex === gi}
                                           onLocateClick={() => handleLocateFinding(gi)}
+                                          onRepositionClick={() => setRepositioningIndex(gi)}
                                           animationDelay={i * 40}
                                           status={findingStatuses[gi] || "open"}
                                           onStatusChange={(status) => updateFindingStatus(gi, status)}
