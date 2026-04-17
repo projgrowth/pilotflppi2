@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusChip } from "@/components/StatusChip";
 import { EmptyState } from "@/components/EmptyState";
-import { useProjects, getDaysElapsed } from "@/hooks/useProjects";
+import { useProjects, getDaysElapsed, type Project } from "@/hooks/useProjects";
 import { useReviewFlagCounts } from "@/hooks/useReviewData";
 import { useInspections } from "@/hooks/useInspections";
 import { useCountUp } from "@/hooks/useCountUp";
@@ -45,7 +45,7 @@ function DashKpi({
 /* ── Active Reviews Table ── */
 type SortKey = "days" | "confidence" | "jurisdiction" | "stage";
 
-function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: any[]; navigate: (p: string) => void; latestReviews?: Record<string, string> }) {
+function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: Project[]; navigate: (p: string) => void; latestReviews?: Record<string, string> }) {
   const [sortKey, setSortKey] = useState<SortKey>("days");
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -143,7 +143,7 @@ function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: a
 }
 
 /* ── Upcoming Deadlines Panel ── */
-function DeadlinesPanel({ projects, navigate }: { projects: any[]; navigate: (p: string) => void }) {
+function DeadlinesPanel({ projects, navigate }: { projects: Project[]; navigate: (p: string) => void }) {
   const items = useMemo(() => {
     const now = new Date();
     const upcoming = (projects || [])

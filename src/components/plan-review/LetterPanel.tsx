@@ -5,6 +5,7 @@ import { CountyDocumentPackage } from "@/components/CountyDocumentPackage";
 import { cn } from "@/lib/utils";
 import type { Finding } from "@/components/FindingCard";
 import type { FindingStatus } from "@/components/FindingStatusFilter";
+import type { FirmSettings } from "@/hooks/useFirmSettings";
 
 interface LetterPanelProps {
   reviewId: string;
@@ -20,7 +21,7 @@ interface LetterPanelProps {
   hasFindings: boolean;
   findings: Finding[];
   findingStatuses: Record<number, FindingStatus>;
-  firmSettings: any;
+  firmSettings: FirmSettings | null | undefined;
   commentLetter: string;
   generatingLetter: boolean;
   copied: boolean;
