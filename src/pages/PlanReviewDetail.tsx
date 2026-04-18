@@ -1318,10 +1318,22 @@ export default function PlanReviewDetail() {
                     )}
                     {hasFindings && (
                       <>
-                        <FindingStatusFilter
-                          activeFilter={statusFilter}
-                          counts={{ all: findings.length, open: openCount, resolved: resolvedCount, deferred: deferredCount }}
-                          onFilterChange={setStatusFilter}
+                        <BulkTriageFilters
+                          statusCounts={{ all: findings.length, open: openCount, resolved: resolvedCount, deferred: deferredCount }}
+                          statusFilter={statusFilter}
+                          onStatusFilterChange={setStatusFilter}
+                          confidenceCounts={confidenceCounts}
+                          confidenceFilter={confidenceFilter}
+                          onConfidenceFilterChange={setConfidenceFilter}
+                          disciplines={disciplinesPresent}
+                          disciplineFilter={disciplineFilter}
+                          onDisciplineFilterChange={setDisciplineFilter}
+                          sheets={sheetsPresent}
+                          sheetFilter={sheetFilter}
+                          onSheetFilterChange={setSheetFilter}
+                          visibleCount={filteredFindings.length}
+                          allVisibleResolved={allVisibleResolved}
+                          onMarkVisibleResolved={handleMarkVisibleResolved}
                         />
                         {hasRoundDiff && (
                           <div className="rounded-md border border-accent/30 bg-accent/5 px-2.5 py-1.5 flex items-center gap-3 text-2xs">
