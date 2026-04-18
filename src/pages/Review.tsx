@@ -76,11 +76,11 @@ export default function Review() {
   };
 
   return (
-    <div className="page-enter space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold text-foreground">Plan Review</h1>
-        <p className="text-sm text-fpp-gray-600 mt-1">Select a project to begin or continue a review</p>
-      </div>
+    <div className="p-8 md:p-10 max-w-7xl mx-auto">
+      <PageHeader
+        title="Plan Review"
+        subtitle="Select a project to begin or continue a review"
+      />
 
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-md">

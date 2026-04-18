@@ -336,11 +336,11 @@ export default function DocumentsPage() {
   const allReady = preflightItems.every((item) => item.ready);
 
   return (
-    <div className="page-enter space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold text-foreground">Document Generator</h1>
-        <p className="text-sm text-fpp-gray-600 mt-1">Generate required Florida Private Provider documents from your active review data.</p>
-      </div>
+    <div className="p-8 md:p-10 max-w-7xl mx-auto">
+      <PageHeader
+        title="Document Generator"
+        subtitle="Generate required Florida Private Provider documents from your active review data."
+      />
 
       <div className="flex items-center gap-3">
         <span className="text-sm text-fpp-gray-600">Generating documents for:</span>
