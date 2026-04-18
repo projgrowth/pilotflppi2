@@ -809,7 +809,7 @@ export default function PlanReviewDetail() {
         let upgraded = 0;
         for (const r2 of refineResults) {
           processed++;
-          if (r2.ok) {
+          if (r2.ok === true) {
             if (r2.value) {
               findings[r2.value.i] = r2.value.updated;
               upgraded++;
