@@ -1140,6 +1140,17 @@ export default function PlanReviewDetail() {
         onNewRound={createNewRound}
       />
 
+      {/* ── Resume banner: another tab is mid-run on this review ── */}
+      {resumingFromOtherTab && !aiRunning && (
+        <div className="shrink-0 border-b bg-accent/10 px-4 py-1.5 flex items-center gap-2">
+          <Loader2 className="h-3 w-3 text-accent animate-spin" />
+          <span className="text-2xs font-semibold text-accent uppercase tracking-wide">Resuming review</span>
+          <span className="text-xs text-foreground/80">
+            Another session is analyzing these plans ({aiPhase}). Findings will appear here automatically.
+          </span>
+        </div>
+      )}
+
       {/* ── Page-cap banner: surface silent 10-page truncation honestly ── */}
       {!aiRunning && pageCapInfo && pageCapInfo.total > pageCapInfo.rendered && (
         <div className="shrink-0 border-b bg-warning/10 px-4 py-1.5 flex items-center gap-2">
