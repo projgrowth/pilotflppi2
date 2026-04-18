@@ -621,6 +621,7 @@ export default function PlanReviewDetail() {
 
       if (refineCandidates.length > 0 && displayImagesForRefine.length > 0) {
         setAiPhase("refining");
+        writeAiProgress(r.id, "refining", { current: 0, total: Math.min(refineCandidates.length, 12) });
         // Cache by `${fileIndex}` to avoid re-downloading the same PDF for many findings on the same file.
         const fileCache = new Map<number, File>();
         const getFileForIndex = async (fileIndex: number): Promise<File | null> => {
@@ -639,10 +640,21 @@ export default function PlanReviewDetail() {
           return file;
         };
 
+        // Convert a "data:image/jpeg;base64,xxx" URL to a Blob for storage upload.
+        const dataUrlToBlob = (dataUrl: string): Blob => {
+          const [meta, b64] = dataUrl.split(",");
+          const mime = (meta.match(/data:(.*?);/) || [])[1] || "image/jpeg";
+          const bin = atob(b64);
+          const bytes = new Uint8Array(bin.length);
+          for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
+          return new Blob([bytes], { type: mime });
+        };
+
         // Limit to the first ~12 candidates so we don't blow latency on huge result sets.
         const MAX_REFINE = 12;
         const slice = refineCandidates.slice(0, MAX_REFINE);
         let upgraded = 0;
+        let processed = 0;
         for (const { f, i } of slice) {
           try {
             const pi = f.markup!.page_index;
@@ -699,6 +711,27 @@ export default function PlanReviewDetail() {
               newY = Math.max(0, Math.min(100 - newH, pageY));
             }
 
+            // ── Persist the crop to Storage as image evidence for this finding ──
+            // Building officials challenge findings; the reviewer needs to show the
+            // exact pixels the AI looked at. We persist the JPEG already in memory
+            // so this is essentially free. Best-effort — never block the run.
+            let cropUrl: string | undefined;
+            try {
+              const cropBlob = dataUrlToBlob(crop.base64);
+              const cropPath = `plan-reviews/${r.id}/finding-crops/${i}-${Date.now()}.jpg`;
+              const { error: upErr } = await supabase.storage
+                .from("documents")
+                .upload(cropPath, cropBlob, { upsert: true, contentType: "image/jpeg" });
+              if (!upErr) {
+                const { data: signed } = await supabase.storage
+                  .from("documents")
+                  .createSignedUrl(cropPath, 60 * 60 * 24 * 365); // 1y signed URL
+                cropUrl = signed?.signedUrl;
+              }
+            } catch (uploadErr) {
+              console.warn("[ai-check] crop upload failed for finding", i, uploadErr);
+            }
+
             findings[i] = {
               ...f,
               markup: {
@@ -708,10 +741,15 @@ export default function PlanReviewDetail() {
                 nearest_text: refinedText || f.markup!.nearest_text,
                 pin_confidence: snappedToText ? "high" : "high", // refined → upgrade
               },
+              crop_url: cropUrl ?? f.crop_url,
             };
             upgraded++;
           } catch (refineErr) {
             console.warn("[ai-check] refine pass failed for finding", i, refineErr);
+          } finally {
+            processed++;
+            // Persist incremental progress so a reopened tab can show "Refining 7/12…".
+            writeAiProgress(r.id, "refining", { current: processed, total: slice.length });
           }
         }
         if (upgraded > 0) {
@@ -720,6 +758,7 @@ export default function PlanReviewDetail() {
       }
 
       setAiPhase("saving");
+      writeAiProgress(r.id, "saving");
       const prevFindings = r.ai_findings || [];
 
       // Stamp every finding with prompt + model version so audits work even
