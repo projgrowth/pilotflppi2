@@ -11,6 +11,7 @@ import ReviewStagePipeline from "@/components/shared/ReviewStagePipeline";
 import DaysActiveBadge from "@/components/shared/DaysActiveBadge";
 import FppEmptyState from "@/components/shared/FppEmptyState";
 import { Search, FolderOpen } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
 
 const stageMap: Record<string, "intake" | "ai_scan" | "under_review" | "comments_sent" | "resubmittal" | "approved"> = {
   intake: "intake",

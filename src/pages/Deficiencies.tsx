@@ -12,6 +12,7 @@ import SeverityBadge from "@/components/shared/SeverityBadge";
 import FppEmptyState from "@/components/shared/FppEmptyState";
 import { Search, Copy, PlusCircle, ExternalLink, ChevronDown, BookOpen } from "lucide-react";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/PageHeader";
 
 export default function Deficiencies() {
   const { data: deficiencies, isLoading } = useDeficiencies();

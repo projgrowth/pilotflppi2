@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FileCheck, MessageSquare, Building2, ClipboardList, Search, CheckCircle2, AlertTriangle, Copy, Download } from "lucide-react";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/PageHeader";
 
 const documents = [
   { icon: FileCheck, title: "Plan Compliance Affidavit", desc: "Certifies plans comply with the Florida Building Code. Required for each submittal and revision. Auto-populated from project data.", color: "text-primary" },
