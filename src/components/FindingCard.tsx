@@ -1,8 +1,9 @@
 import { Badge } from "@/components/ui/badge";
 import { getDisciplineIcon, getDisciplineColor, getDisciplineLabel } from "@/lib/county-utils";
-import { AlertTriangle, AlertCircle, Info, CheckCheck, MapPin, Clock, ArrowRightLeft, ChevronRight, History, Move, Crosshair, Eye } from "lucide-react";
+import { AlertTriangle, AlertCircle, Info, CheckCheck, MapPin, Clock, ArrowRightLeft, ChevronRight, History, Move, Crosshair, Eye, ImageIcon, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, forwardRef } from "react";
+import { useSimilarCorrections } from "@/hooks/useSimilarCorrections";
 import type { FindingStatus } from "@/components/FindingStatusFilter";
 import type { FindingHistoryEntry } from "@/hooks/useFindingHistory";
 import type { Finding } from "@/types";
