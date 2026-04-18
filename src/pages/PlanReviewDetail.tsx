@@ -528,6 +528,11 @@ export default function PlanReviewDetail() {
             try { findings = match ? JSON.parse(match[0]) : []; } catch { findings = []; }
           }
 
+          // Stamp every finding with a stable UUID at parse time. Status,
+          // history, crop URLs, and corrections lookups all key off this
+          // forever — never the array index.
+          findings = findings.map((f) => ({ ...f, finding_id: f.finding_id || crypto.randomUUID() }));
+
           setAiPhase("validating");
           writeAiProgress(r.id, "validating");
           // ── Validate & repair page_index, anchor pin to grid_cell, then SNAP to vector text ──
