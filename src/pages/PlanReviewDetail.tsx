@@ -345,9 +345,11 @@ export default function PlanReviewDetail() {
  try {
  const newUrls: string[] = [...(review.file_urls || [])];
  const newFilePaths: string[] = [];
- for (const file of Array.from(files)) {
- if (file.type !== "application/pdf") { toast.error(`${file.name} is not a PDF`); continue; }
- if (file.size > 20 * 1024 * 1024) { toast.error(`${file.name} exceeds 20MB limit`); continue; }
+  for (const file of Array.from(files)) {
+   const lowerName = file.name.toLowerCase();
+   if (file.type !== "application/pdf" && !lowerName.endsWith(".pdf")) { toast.error(`${file.name} is not a PDF`); continue; }
+   if (file.size > 100 * 1024 * 1024) { toast.error(`${file.name} exceeds 100 MB`); continue; }
+   if (file.size === 0) { toast.error(`${file.name} is empty`); continue; }
  const path = `plan-reviews/${review.id}/${file.name}`;
  const { error: uploadError } = await supabase.storage.from("documents").upload(path, file, { upsert: true });
  if (uploadError) throw uploadError;
