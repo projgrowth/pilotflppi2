@@ -158,6 +158,28 @@ export default function PlanReviewDetail() {
  /** True when we detected another tab is mid-run on this review and we're showing
  * a "Resuming…" banner backed by realtime. Disables the "Run AI Check" button. */
  const [resumingFromOtherTab, setResumingFromOtherTab] = useState(false);
+ const [showShortcuts, setShowShortcuts] = useState(false);
+ const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
+ const [showLintDialog, setShowLintDialog] = useState(false);
+ const letterHydratedRef = useRef<string | null>(null);
+
+ // Autosave the comment letter to the review row, debounced.
+ const { state: autosaveState, lastSavedAt, dirty: letterDirty } = useLetterAutosave(
+  review?.id,
+  commentLetter,
+  !generatingLetter,
+ );
+
+ // Hydrate the letter draft once per review id (don't clobber in-flight stream).
+ useEffect(() => {
+  if (!review) return;
+  if (letterHydratedRef.current === review.id) return;
+  letterHydratedRef.current = review.id;
+  const draft = (review as { comment_letter_draft?: string }).comment_letter_draft;
+  if (typeof draft === "string" && draft.length > 0) {
+   setCommentLetter(draft);
+  }
+ }, [review?.id]);
 
  /** Persist a phase transition so a fresh tab can show a "Resuming…" banner if
  * the user closes the original. Best-effort — never fails the run. */
