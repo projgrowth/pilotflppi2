@@ -1595,13 +1595,24 @@ export default function PlanReviewDetail() {
  findings={findings}
  findingStatuses={findingStatuses}
  firmSettings={firmSettings}
- commentLetter={commentLetter}
+  commentLetter={commentLetter}
  generatingLetter={generatingLetter}
  copied={copied}
  userId={user?.id}
- onGenerateLetter={() => generateCommentLetter(review)} onCancelLetter={cancelCommentLetter}
+ autosaveState={autosaveState}
+ autosaveLastSavedAt={lastSavedAt}
+ onGenerateLetter={async () => {
+  if (commentLetter && !(await confirm({ title: "Regenerate letter?", description: "This replaces the current draft. Your edits will be lost.", confirmLabel: "Regenerate", variant: "destructive", rememberKey: "regen-letter" }))) return;
+  generateCommentLetter(review);
+ }}
+ onCancelLetter={cancelCommentLetter}
  onCopyLetter={copyLetter}
  onLetterChange={setCommentLetter}
+ onSendToContractor={() => {
+  const issues = lintCommentLetter(commentLetter, findings, findingStatuses);
+  setLintIssues(issues);
+  setShowLintDialog(true);
+ }}
  onQcApprove={async () => {
  // FS 553.791 sign-off integrity: a reviewer cannot QC their own work.
  if (review.reviewer_id && review.reviewer_id === user?.id) {
