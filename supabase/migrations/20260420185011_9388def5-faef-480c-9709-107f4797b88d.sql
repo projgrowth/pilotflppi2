@@ -1,0 +1,1 @@
+ALTER TABLE public.plan_reviews ADD COLUMN IF NOT EXISTS comment_letter_draft text NOT NULL DEFAULT '';

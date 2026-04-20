@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppLayout } from "@/components/AppLayout";
+import { ConfirmProvider } from "@/hooks/useConfirm";
 import { Loader2 } from "lucide-react";
 
 import Index from "./pages/Index";
@@ -52,6 +53,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+          <ConfirmProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Index />} />
@@ -82,6 +84,7 @@ const App = () => (
 
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </ConfirmProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

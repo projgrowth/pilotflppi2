@@ -25,6 +25,12 @@ import { ReviewTopBar } from "@/components/plan-review/ReviewTopBar";
 import { CountyPanel } from "@/components/plan-review/CountyPanel";
 import { LetterPanel } from "@/components/plan-review/LetterPanel";
 import { RightPanelTabs } from "@/components/plan-review/RightPanelTabs";
+import { KeyboardShortcutsOverlay } from "@/components/plan-review/KeyboardShortcutsOverlay";
+import { RoundDiffPanel } from "@/components/plan-review/RoundDiffPanel";
+import { LetterLintDialog } from "@/components/plan-review/LetterLintDialog";
+import { useConfirm } from "@/hooks/useConfirm";
+import { useLetterAutosave } from "@/hooks/useLetterAutosave";
+import { lintCommentLetter, hasBlockingIssues, type LintIssue } from "@/lib/letter-linter";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { FindingCard, type Finding } from "@/components/FindingCard";
@@ -90,6 +96,7 @@ export default function PlanReviewDetail() {
  const { firmSettings } = useFirmSettings();
  const { user } = useAuth();
  const { data: findingHistory, refetch: refetchHistory } = useFindingHistory(id);
+ const confirm = useConfirm();
 
  const { data: review, isLoading } = useQuery({
  queryKey: ["plan-review", id],
@@ -151,6 +158,28 @@ export default function PlanReviewDetail() {
  /** True when we detected another tab is mid-run on this review and we're showing
  * a "Resuming…" banner backed by realtime. Disables the "Run AI Check" button. */
  const [resumingFromOtherTab, setResumingFromOtherTab] = useState(false);
+ const [showShortcuts, setShowShortcuts] = useState(false);
+ const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
+ const [showLintDialog, setShowLintDialog] = useState(false);
+ const letterHydratedRef = useRef<string | null>(null);
+
+ // Autosave the comment letter to the review row, debounced.
+ const { state: autosaveState, lastSavedAt, dirty: letterDirty } = useLetterAutosave(
+  review?.id,
+  commentLetter,
+  !generatingLetter,
+ );
+
+ // Hydrate the letter draft once per review id (don't clobber in-flight stream).
+ useEffect(() => {
+  if (!review) return;
+  if (letterHydratedRef.current === review.id) return;
+  letterHydratedRef.current = review.id;
+  const draft = (review as { comment_letter_draft?: string }).comment_letter_draft;
+  if (typeof draft === "string" && draft.length > 0) {
+   setCommentLetter(draft);
+  }
+ }, [review?.id]);
 
  /** Persist a phase transition so a fresh tab can show a "Resuming…" banner if
  * the user closes the original. Best-effort — never fails the run. */
@@ -316,9 +345,11 @@ export default function PlanReviewDetail() {
  try {
  const newUrls: string[] = [...(review.file_urls || [])];
  const newFilePaths: string[] = [];
- for (const file of Array.from(files)) {
- if (file.type !== "application/pdf") { toast.error(`${file.name} is not a PDF`); continue; }
- if (file.size > 20 * 1024 * 1024) { toast.error(`${file.name} exceeds 20MB limit`); continue; }
+  for (const file of Array.from(files)) {
+   const lowerName = file.name.toLowerCase();
+   if (file.type !== "application/pdf" && !lowerName.endsWith(".pdf")) { toast.error(`${file.name} is not a PDF`); continue; }
+   if (file.size > 100 * 1024 * 1024) { toast.error(`${file.name} exceeds 100 MB`); continue; }
+   if (file.size === 0) { toast.error(`${file.name} is empty`); continue; }
  const path = `plan-reviews/${review.id}/${file.name}`;
  const { error: uploadError } = await supabase.storage.from("documents").upload(path, file, { upsert: true });
  if (uploadError) throw uploadError;
@@ -996,11 +1027,20 @@ export default function PlanReviewDetail() {
  if (cur !== null) { e.preventDefault(); updateFindingStatus(cur, "deferred"); }
  break;
  }
- case "o": {
- if (cur !== null) { e.preventDefault(); updateFindingStatus(cur, "open"); }
- break;
- }
- }
+  case "o": {
+   if (cur !== null) { e.preventDefault(); updateFindingStatus(cur, "open"); }
+   break;
+  }
+  case "?": {
+   e.preventDefault();
+   setShowShortcuts((s) => !s);
+   break;
+  }
+  case "escape": {
+   if (showShortcuts) { e.preventDefault(); setShowShortcuts(false); }
+   break;
+  }
+  }
  };
  window.addEventListener("keydown", handler);
  return () => window.removeEventListener("keydown", handler);
@@ -1307,7 +1347,7 @@ export default function PlanReviewDetail() {
  {rightPanel === "checklist" && <div className="p-3"><DisciplineChecklist tradeType={review.project?.trade_type || "building"} findings={findings} /></div>}
  {rightPanel === "completeness" && <div className="p-3"><SitePlanChecklist findings={findings} county={county} /></div>}
  {rightPanel === "letter" && (
- <LetterPanel reviewId={review.id} projectId={review.project_id} projectName={review.project?.name || ""} address={review.project?.address || ""} county={county} jurisdiction={review.project?.jurisdiction || ""} tradeType={review.project?.trade_type || ""} round={review.round} aiCheckStatus={review.ai_check_status} qcStatus={review.qc_status || "pending_qc"} hasFindings={hasFindings} findings={findings} findingStatuses={findingStatuses} firmSettings={firmSettings} commentLetter={commentLetter} generatingLetter={generatingLetter} copied={copied} userId={user?.id} onGenerateLetter={() => generateCommentLetter(review)} onCancelLetter={cancelCommentLetter} onCopyLetter={copyLetter} onLetterChange={setCommentLetter} onQcApprove={async () => { await supabase.from("plan_reviews").update({ qc_status: "qc_approved", qc_reviewer_id: user?.id }).eq("id", review.id); queryClient.invalidateQueries({ queryKey: ["plan-review", id] }); toast.success("QC approved"); }} onQcReject={async () => { await supabase.from("plan_reviews").update({ qc_status: "qc_rejected", qc_reviewer_id: user?.id }).eq("id", review.id); queryClient.invalidateQueries({ queryKey: ["plan-review", id] }); toast.error("QC rejected"); }} onDocumentGenerated={() => queryClient.invalidateQueries({ queryKey: ["project-documents", review.project_id] })} />
+ <LetterPanel reviewId={review.id} projectId={review.project_id} projectName={review.project?.name || ""} address={review.project?.address || ""} county={county} jurisdiction={review.project?.jurisdiction || ""} tradeType={review.project?.trade_type || ""} round={review.round} aiCheckStatus={review.ai_check_status} qcStatus={review.qc_status || "pending_qc"} hasFindings={hasFindings} findings={findings} findingStatuses={findingStatuses} firmSettings={firmSettings} commentLetter={commentLetter} generatingLetter={generatingLetter} copied={copied} userId={user?.id} autosaveState={autosaveState} autosaveLastSavedAt={lastSavedAt} onGenerateLetter={async () => { if (commentLetter && !(await confirm({ title: "Regenerate letter?", description: "This replaces the current draft. Your edits will be lost.", confirmLabel: "Regenerate", variant: "destructive", rememberKey: "regen-letter" }))) return; generateCommentLetter(review); }} onCancelLetter={cancelCommentLetter} onCopyLetter={copyLetter} onLetterChange={setCommentLetter} onSendToContractor={() => { const issues = lintCommentLetter(commentLetter, findings, findingStatuses); setLintIssues(issues); setShowLintDialog(true); }} onQcApprove={async () => { await supabase.from("plan_reviews").update({ qc_status: "qc_approved", qc_reviewer_id: user?.id }).eq("id", review.id); queryClient.invalidateQueries({ queryKey: ["plan-review", id] }); toast.success("QC approved"); }} onQcReject={async () => { await supabase.from("plan_reviews").update({ qc_status: "qc_rejected", qc_reviewer_id: user?.id }).eq("id", review.id); queryClient.invalidateQueries({ queryKey: ["plan-review", id] }); toast.error("QC rejected"); }} onDocumentGenerated={() => queryClient.invalidateQueries({ queryKey: ["project-documents", review.project_id] })} />
  )}
  {rightPanel === "county" && <CountyPanel county={county} />}
  </div>
@@ -1555,13 +1595,24 @@ export default function PlanReviewDetail() {
  findings={findings}
  findingStatuses={findingStatuses}
  firmSettings={firmSettings}
- commentLetter={commentLetter}
+  commentLetter={commentLetter}
  generatingLetter={generatingLetter}
  copied={copied}
  userId={user?.id}
- onGenerateLetter={() => generateCommentLetter(review)} onCancelLetter={cancelCommentLetter}
+ autosaveState={autosaveState}
+ autosaveLastSavedAt={lastSavedAt}
+ onGenerateLetter={async () => {
+  if (commentLetter && !(await confirm({ title: "Regenerate letter?", description: "This replaces the current draft. Your edits will be lost.", confirmLabel: "Regenerate", variant: "destructive", rememberKey: "regen-letter" }))) return;
+  generateCommentLetter(review);
+ }}
+ onCancelLetter={cancelCommentLetter}
  onCopyLetter={copyLetter}
  onLetterChange={setCommentLetter}
+ onSendToContractor={() => {
+  const issues = lintCommentLetter(commentLetter, findings, findingStatuses);
+  setLintIssues(issues);
+  setShowLintDialog(true);
+ }}
  onQcApprove={async () => {
  // FS 553.791 sign-off integrity: a reviewer cannot QC their own work.
  if (review.reviewer_id && review.reviewer_id === user?.id) {
