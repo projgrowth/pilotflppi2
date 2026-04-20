@@ -265,6 +265,150 @@ export type Database = {
         }
         Relationships: []
       }
+      deficiencies_v2: {
+        Row: {
+          code_reference: Json | null
+          confidence_basis: string | null
+          confidence_score: number | null
+          created_at: string
+          def_number: string
+          discipline: string
+          evidence: string[] | null
+          finding: string
+          firm_id: string | null
+          human_review_method: string | null
+          human_review_reason: string | null
+          human_review_verify: string | null
+          id: string
+          liability_flag: boolean
+          life_safety_flag: boolean
+          model_version: string | null
+          permit_blocker: boolean
+          plan_review_id: string
+          priority: string
+          prompt_version_id: string | null
+          required_action: string
+          requires_human_review: boolean
+          reviewer_disposition: string | null
+          reviewer_notes: string | null
+          sheet_refs: string[] | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          code_reference?: Json | null
+          confidence_basis?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          def_number: string
+          discipline: string
+          evidence?: string[] | null
+          finding: string
+          firm_id?: string | null
+          human_review_method?: string | null
+          human_review_reason?: string | null
+          human_review_verify?: string | null
+          id?: string
+          liability_flag?: boolean
+          life_safety_flag?: boolean
+          model_version?: string | null
+          permit_blocker?: boolean
+          plan_review_id: string
+          priority?: string
+          prompt_version_id?: string | null
+          required_action: string
+          requires_human_review?: boolean
+          reviewer_disposition?: string | null
+          reviewer_notes?: string | null
+          sheet_refs?: string[] | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          code_reference?: Json | null
+          confidence_basis?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          def_number?: string
+          discipline?: string
+          evidence?: string[] | null
+          finding?: string
+          firm_id?: string | null
+          human_review_method?: string | null
+          human_review_reason?: string | null
+          human_review_verify?: string | null
+          id?: string
+          liability_flag?: boolean
+          life_safety_flag?: boolean
+          model_version?: string | null
+          permit_blocker?: boolean
+          plan_review_id?: string
+          priority?: string
+          prompt_version_id?: string | null
+          required_action?: string
+          requires_human_review?: boolean
+          reviewer_disposition?: string | null
+          reviewer_notes?: string | null
+          sheet_refs?: string[] | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deficiencies_v2_plan_review_id_fkey"
+            columns: ["plan_review_id"]
+            isOneToOne: false
+            referencedRelation: "plan_reviews"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deficiencies_v2_prompt_version_id_fkey"
+            columns: ["prompt_version_id"]
+            isOneToOne: false
+            referencedRelation: "prompt_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discipline_negative_space: {
+        Row: {
+          created_at: string
+          description: string
+          discipline: string
+          fbc_section: string | null
+          id: string
+          is_active: boolean
+          item_key: string
+          sort_order: number
+          trigger_condition: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          discipline: string
+          fbc_section?: string | null
+          id?: string
+          is_active?: boolean
+          item_key: string
+          sort_order?: number
+          trigger_condition?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          discipline?: string
+          fbc_section?: string | null
+          id?: string
+          is_active?: boolean
+          item_key?: string
+          sort_order?: number
+          trigger_condition?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       fee_schedules: {
         Row: {
           base_fee: number
@@ -659,6 +803,48 @@ export type Database = {
           },
         ]
       }
+      jurisdictions_fl: {
+        Row: {
+          coastal: boolean
+          county: string
+          created_at: string
+          fbc_edition: string
+          flood_zone_critical: boolean
+          high_volume: boolean
+          hvhz: boolean
+          id: string
+          local_amendments_url: string | null
+          notes: string | null
+          updated_at: string
+        }
+        Insert: {
+          coastal?: boolean
+          county: string
+          created_at?: string
+          fbc_edition?: string
+          flood_zone_critical?: boolean
+          high_volume?: boolean
+          hvhz?: boolean
+          id?: string
+          local_amendments_url?: string | null
+          notes?: string | null
+          updated_at?: string
+        }
+        Update: {
+          coastal?: boolean
+          county?: string
+          created_at?: string
+          fbc_edition?: string
+          flood_zone_critical?: boolean
+          high_volume?: boolean
+          hvhz?: boolean
+          id?: string
+          local_amendments_url?: string | null
+          notes?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       milestone_buildings: {
         Row: {
           address: string
@@ -899,6 +1085,95 @@ export type Database = {
         }
         Relationships: []
       }
+      project_dna: {
+        Row: {
+          ambiguous_fields: string[] | null
+          construction_type: string | null
+          county: string | null
+          exposure_category: string | null
+          extracted_at: string
+          fbc_edition: string | null
+          firm_id: string | null
+          flood_zone: string | null
+          has_mezzanine: boolean | null
+          hvhz: boolean | null
+          id: string
+          is_high_rise: boolean | null
+          jurisdiction: string | null
+          missing_fields: string[] | null
+          mixed_occupancy: boolean | null
+          occupancy_classification: string | null
+          plan_review_id: string
+          raw_extraction: Json | null
+          risk_category: string | null
+          seismic_design_category: string | null
+          stories: number | null
+          total_sq_ft: number | null
+          updated_at: string
+          wind_speed_vult: number | null
+        }
+        Insert: {
+          ambiguous_fields?: string[] | null
+          construction_type?: string | null
+          county?: string | null
+          exposure_category?: string | null
+          extracted_at?: string
+          fbc_edition?: string | null
+          firm_id?: string | null
+          flood_zone?: string | null
+          has_mezzanine?: boolean | null
+          hvhz?: boolean | null
+          id?: string
+          is_high_rise?: boolean | null
+          jurisdiction?: string | null
+          missing_fields?: string[] | null
+          mixed_occupancy?: boolean | null
+          occupancy_classification?: string | null
+          plan_review_id: string
+          raw_extraction?: Json | null
+          risk_category?: string | null
+          seismic_design_category?: string | null
+          stories?: number | null
+          total_sq_ft?: number | null
+          updated_at?: string
+          wind_speed_vult?: number | null
+        }
+        Update: {
+          ambiguous_fields?: string[] | null
+          construction_type?: string | null
+          county?: string | null
+          exposure_category?: string | null
+          extracted_at?: string
+          fbc_edition?: string | null
+          firm_id?: string | null
+          flood_zone?: string | null
+          has_mezzanine?: boolean | null
+          hvhz?: boolean | null
+          id?: string
+          is_high_rise?: boolean | null
+          jurisdiction?: string | null
+          missing_fields?: string[] | null
+          mixed_occupancy?: boolean | null
+          occupancy_classification?: string | null
+          plan_review_id?: string
+          raw_extraction?: Json | null
+          risk_category?: string | null
+          seismic_design_category?: string | null
+          stories?: number | null
+          total_sq_ft?: number | null
+          updated_at?: string
+          wind_speed_vult?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_dna_plan_review_id_fkey"
+            columns: ["plan_review_id"]
+            isOneToOne: true
+            referencedRelation: "plan_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       projects: {
         Row: {
           address: string
@@ -985,6 +1260,93 @@ export type Database = {
           },
         ]
       }
+      prompt_versions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          effective_at: string
+          fbc_edition: string | null
+          id: string
+          is_active: boolean
+          notes: string | null
+          prompt_key: string
+          system_prompt: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          effective_at?: string
+          fbc_edition?: string | null
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          prompt_key: string
+          system_prompt: string
+          version: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          effective_at?: string
+          fbc_edition?: string | null
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          prompt_key?: string
+          system_prompt?: string
+          version?: number
+        }
+        Relationships: []
+      }
+      review_feedback: {
+        Row: {
+          created_at: string
+          deficiency_id: string | null
+          feedback_type: string
+          firm_id: string | null
+          id: string
+          notes: string | null
+          plan_review_id: string
+          reviewer_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          deficiency_id?: string | null
+          feedback_type: string
+          firm_id?: string | null
+          id?: string
+          notes?: string | null
+          plan_review_id: string
+          reviewer_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          deficiency_id?: string | null
+          feedback_type?: string
+          firm_id?: string | null
+          id?: string
+          notes?: string | null
+          plan_review_id?: string
+          reviewer_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_feedback_deficiency_id_fkey"
+            columns: ["deficiency_id"]
+            isOneToOne: false
+            referencedRelation: "deficiencies_v2"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "review_feedback_plan_review_id_fkey"
+            columns: ["plan_review_id"]
+            isOneToOne: false
+            referencedRelation: "plan_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       review_flags: {
         Row: {
           confidence: string | null
@@ -1037,6 +1399,100 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      review_pipeline_status: {
+        Row: {
+          completed_at: string | null
+          error_message: string | null
+          firm_id: string | null
+          id: string
+          metadata: Json | null
+          plan_review_id: string
+          stage: string
+          started_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          error_message?: string | null
+          firm_id?: string | null
+          id?: string
+          metadata?: Json | null
+          plan_review_id: string
+          stage: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          error_message?: string | null
+          firm_id?: string | null
+          id?: string
+          metadata?: Json | null
+          plan_review_id?: string
+          stage?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_pipeline_status_plan_review_id_fkey"
+            columns: ["plan_review_id"]
+            isOneToOne: false
+            referencedRelation: "plan_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sheet_coverage: {
+        Row: {
+          created_at: string
+          discipline: string | null
+          expected: boolean
+          firm_id: string | null
+          id: string
+          page_index: number | null
+          plan_review_id: string
+          sheet_ref: string
+          sheet_title: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          discipline?: string | null
+          expected?: boolean
+          firm_id?: string | null
+          id?: string
+          page_index?: number | null
+          plan_review_id: string
+          sheet_ref: string
+          sheet_title?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          discipline?: string | null
+          expected?: boolean
+          firm_id?: string | null
+          id?: string
+          page_index?: number | null
+          plan_review_id?: string
+          sheet_ref?: string
+          sheet_title?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_coverage_plan_review_id_fkey"
+            columns: ["plan_review_id"]
+            isOneToOne: false
+            referencedRelation: "plan_reviews"
             referencedColumns: ["id"]
           },
         ]
