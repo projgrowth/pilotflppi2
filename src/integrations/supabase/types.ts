@@ -804,6 +804,7 @@ export type Database = {
           ai_findings: Json | null
           ai_run_progress: Json | null
           checklist_state: Json | null
+          comment_letter_draft: string
           created_at: string
           fbc_edition: string | null
           file_urls: string[]
@@ -824,6 +825,7 @@ export type Database = {
           ai_findings?: Json | null
           ai_run_progress?: Json | null
           checklist_state?: Json | null
+          comment_letter_draft?: string
           created_at?: string
           fbc_edition?: string | null
           file_urls?: string[]
@@ -844,6 +846,7 @@ export type Database = {
           ai_findings?: Json | null
           ai_run_progress?: Json | null
           checklist_state?: Json | null
+          comment_letter_draft?: string
           created_at?: string
           fbc_edition?: string | null
           file_urls?: string[]
