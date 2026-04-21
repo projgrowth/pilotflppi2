@@ -396,16 +396,99 @@ async function stageDisciplineReview(
   planReviewId: string,
   firmId: string | null,
 ) {
-  // Per-discipline failure isolation: a failed discipline marks its
-  // generated deficiencies as requires_human_review and we continue.
+  // Load context once and share across all discipline calls.
+  const [sheets, signedUrls, dnaRow, jurisdictionRow] = await Promise.all([
+    admin
+      .from("sheet_coverage")
+      .select("sheet_ref, sheet_title, discipline, page_index")
+      .eq("plan_review_id", planReviewId)
+      .order("page_index", { ascending: true }),
+    signedSheetUrls(admin, planReviewId),
+    admin
+      .from("project_dna")
+      .select("*")
+      .eq("plan_review_id", planReviewId)
+      .maybeSingle(),
+    admin
+      .from("plan_reviews")
+      .select("projects(county)")
+      .eq("id", planReviewId)
+      .maybeSingle(),
+  ]);
+
+  const allSheets = (sheets.data ?? []) as Array<{
+    sheet_ref: string;
+    sheet_title: string | null;
+    discipline: string | null;
+    page_index: number | null;
+  }>;
+  const dna = (dnaRow.data ?? null) as Record<string, unknown> | null;
+  const county = ((jurisdictionRow.data ?? null) as
+    | { projects: { county: string } | null }
+    | null)?.projects?.county ?? null;
+
+  let jurisdiction: Record<string, unknown> | null = null;
+  if (county) {
+    const { data: jr } = await admin
+      .from("jurisdictions_fl")
+      .select("*")
+      .eq("county", county)
+      .maybeSingle();
+    jurisdiction = (jr ?? null) as Record<string, unknown> | null;
+  }
+
+  // Smart chunking — first 2 "general notes" pages (G-/T-/cover) seed every call.
+  const generalSheets = allSheets
+    .filter((s) => disciplineForSheet(s.sheet_ref) === null)
+    .slice(0, 2);
+  const generalImageUrls = generalSheets
+    .map((s) => signedUrls[s.page_index ?? -1]?.signed_url)
+    .filter(Boolean) as string[];
+
   const failed: string[] = [];
+  let totalFindings = 0;
+
   for (const discipline of DISCIPLINES) {
     try {
-      await runDisciplineChecks(admin, planReviewId, firmId, discipline);
+      const disciplineSheets = allSheets.filter(
+        (s) => disciplineForSheet(s.sheet_ref) === discipline,
+      );
+      const disciplineImageUrls = disciplineSheets
+        .map((s) => signedUrls[s.page_index ?? -1]?.signed_url)
+        .filter(Boolean) as string[];
+
+      // No sheets routed → log a single human-review item and continue.
+      if (disciplineImageUrls.length === 0) {
+        await admin.from("deficiencies_v2").insert({
+          plan_review_id: planReviewId,
+          firm_id: firmId,
+          def_number: `DEF-${discipline.slice(0, 1).toUpperCase()}001`,
+          discipline,
+          finding: `No ${discipline} sheets identified in submittal.`,
+          required_action: `Confirm whether ${discipline} scope applies; if so, request the missing sheets.`,
+          priority: "medium",
+          requires_human_review: true,
+          human_review_reason: "No sheets routed to this discipline by sheet-prefix mapping.",
+          human_review_method: "Reviewer: confirm scope and request missing sheets if applicable.",
+          confidence_score: 0.3,
+          confidence_basis: "Sheet routing produced no inputs for this discipline.",
+          status: "open",
+        });
+        continue;
+      }
+
+      const inserted = await runDisciplineChecks(admin, planReviewId, firmId, {
+        discipline,
+        disciplineSheets,
+        disciplineImageUrls,
+        generalImageUrls,
+        dna,
+        jurisdiction,
+      });
+      totalFindings += inserted;
     } catch (err) {
       console.error(`[discipline_review:${discipline}] failed:`, err);
       failed.push(discipline);
-      // Insert a single human-review placeholder so the dashboard surfaces it
       await admin.from("deficiencies_v2").insert({
         plan_review_id: planReviewId,
         firm_id: firmId,
@@ -421,51 +504,193 @@ async function stageDisciplineReview(
       });
     }
   }
-  return { failed_disciplines: failed };
+  return { failed_disciplines: failed, total_findings: totalFindings };
+}
+
+interface DisciplineRunCtx {
+  discipline: string;
+  disciplineSheets: Array<{ sheet_ref: string; sheet_title: string | null }>;
+  disciplineImageUrls: string[];
+  generalImageUrls: string[];
+  dna: Record<string, unknown> | null;
+  jurisdiction: Record<string, unknown> | null;
 }
 
 async function runDisciplineChecks(
   admin: ReturnType<typeof createClient>,
   planReviewId: string,
   firmId: string | null,
-  discipline: string,
-) {
-  // Pull this discipline's negative-space checklist (deterministic items).
+  ctx: DisciplineRunCtx,
+): Promise<number> {
+  // Pull this discipline's negative-space checklist (deterministic must-checks).
   const { data: items } = await admin
     .from("discipline_negative_space")
-    .select("item_key, description, fbc_section")
-    .eq("discipline", discipline)
+    .select("item_key, description, fbc_section, trigger_condition")
+    .eq("discipline", ctx.discipline)
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
-  if (!items || items.length === 0) return;
+  const checklist = (items ?? []) as Array<{
+    item_key: string;
+    description: string;
+    fbc_section: string | null;
+    trigger_condition: string | null;
+  }>;
 
-  // For now, scaffold one DEF per checklist item flagged as "needs verification"
-  // — this seeds the dashboard. Vision extraction (next PR) will replace these
-  // with actual evidence-based findings.
-  const rows = items.slice(0, 5).map((it, idx) => ({
+  const dnaSummary = ctx.dna
+    ? JSON.stringify(
+        {
+          occupancy: ctx.dna.occupancy_classification,
+          construction_type: ctx.dna.construction_type,
+          stories: ctx.dna.stories,
+          total_sq_ft: ctx.dna.total_sq_ft,
+          wind_speed_vult: ctx.dna.wind_speed_vult,
+          exposure_category: ctx.dna.exposure_category,
+          risk_category: ctx.dna.risk_category,
+          flood_zone: ctx.dna.flood_zone,
+          hvhz: ctx.dna.hvhz,
+          mixed_occupancy: ctx.dna.mixed_occupancy,
+          is_high_rise: ctx.dna.is_high_rise,
+          has_mezzanine: ctx.dna.has_mezzanine,
+          missing_fields: ctx.dna.missing_fields,
+        },
+        null,
+        2,
+      )
+    : "(not yet extracted)";
+
+  const jurSummary = ctx.jurisdiction
+    ? JSON.stringify(
+        {
+          county: ctx.jurisdiction.county,
+          fbc_edition: ctx.jurisdiction.fbc_edition,
+          hvhz: ctx.jurisdiction.hvhz,
+          coastal: ctx.jurisdiction.coastal,
+          flood_zone_critical: ctx.jurisdiction.flood_zone_critical,
+          high_volume: ctx.jurisdiction.high_volume,
+          notes: ctx.jurisdiction.notes,
+        },
+        null,
+        2,
+      )
+    : "(unknown jurisdiction)";
+
+  const checklistText = checklist.length
+    ? checklist
+        .map(
+          (c, i) =>
+            `${i + 1}. [${c.item_key}] ${c.description}${
+              c.fbc_section ? ` (FBC ${c.fbc_section})` : ""
+            }${c.trigger_condition ? ` — only if: ${c.trigger_condition}` : ""}`,
+        )
+        .join("\n")
+    : "(no checklist seeded — rely on discipline best practices)";
+
+  const sheetIndex = ctx.disciplineSheets
+    .map((s) => `${s.sheet_ref}${s.sheet_title ? ` — ${s.sheet_title}` : ""}`)
+    .join("\n");
+
+  const systemPrompt =
+    `You are a Florida private-provider plan reviewer specializing in ${ctx.discipline}. ` +
+    `Audit submitted construction documents against the Florida Building Code and applicable referenced standards. ` +
+    `Rules:\n` +
+    `1. Cite verbatim text from the sheets in "evidence". If you cannot read a value, say so and set requires_human_review=true.\n` +
+    `2. Every finding must reference at least one sheet_ref shown to you.\n` +
+    `3. Use the project DNA and jurisdiction context — flag HVHZ items in HVHZ counties, flood items in flood zones.\n` +
+    `4. life_safety_flag=true for egress/fire/structural-collapse issues. permit_blocker=true for missing required documentation. liability_flag=true for items that materially affect occupant safety or property protection.\n` +
+    `5. Only raise a finding when there is a real deficiency or a required item is not visible. Do NOT raise findings for compliant items.\n` +
+    `6. confidence_score must be ≤0.6 if you did not directly read the value (i.e. inferred from absence).\n` +
+    `7. Do NOT speculate — when in doubt, set requires_human_review=true with a specific verification method.`;
+
+  const userText =
+    `## Project DNA\n${dnaSummary}\n\n` +
+    `## Jurisdiction\n${jurSummary}\n\n` +
+    `## Sheets routed to ${ctx.discipline}\n${sheetIndex || "(none)"}\n\n` +
+    `## Mandatory ${ctx.discipline} checklist\n${checklistText}\n\n` +
+    `Analyze the attached pages (general-notes pages first, then ${ctx.discipline} sheets). ` +
+    `Return findings via submit_discipline_findings.`;
+
+  const content: Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string } }
+  > = [
+    { type: "text", text: userText },
+    ...ctx.generalImageUrls.map((u) => ({
+      type: "image_url" as const,
+      image_url: { url: u },
+    })),
+    ...ctx.disciplineImageUrls.map((u) => ({
+      type: "image_url" as const,
+      image_url: { url: u },
+    })),
+  ];
+
+  const result = (await callAI(
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content },
+    ],
+    FINDINGS_SCHEMA as unknown as Record<string, unknown>,
+  )) as {
+    findings: Array<{
+      finding: string;
+      required_action: string;
+      sheet_refs: string[];
+      code_section?: string;
+      evidence: string[];
+      confidence_score: number;
+      confidence_basis: string;
+      life_safety_flag?: boolean;
+      permit_blocker?: boolean;
+      liability_flag?: boolean;
+      requires_human_review?: boolean;
+      human_review_reason?: string;
+      human_review_verify?: string;
+      priority: "high" | "medium" | "low";
+    }>;
+  };
+
+  const findings = result?.findings ?? [];
+  if (findings.length === 0) return 0;
+
+  // Find next available DEF number for this discipline within the review.
+  const { count: existingCount } = await admin
+    .from("deficiencies_v2")
+    .select("id", { count: "exact", head: true })
+    .eq("plan_review_id", planReviewId)
+    .eq("discipline", ctx.discipline);
+  const baseIdx = (existingCount ?? 0) + 1;
+
+  const rows = findings.map((f, i) => ({
     plan_review_id: planReviewId,
     firm_id: firmId,
-    def_number: `DEF-${discipline.slice(0, 1).toUpperCase()}${String(idx + 1).padStart(3, "0")}`,
-    discipline,
-    sheet_refs: [],
-    code_reference: it.fbc_section
-      ? { code: "FBC", section: it.fbc_section, edition: "8th" }
+    def_number: `DEF-${ctx.discipline.slice(0, 1).toUpperCase()}${String(
+      baseIdx + i,
+    ).padStart(3, "0")}`,
+    discipline: ctx.discipline,
+    sheet_refs: f.sheet_refs ?? [],
+    code_reference: f.code_section
+      ? { code: "FBC", section: f.code_section, edition: ctx.dna?.fbc_edition ?? "8th" }
       : {},
-    finding: `Verify: ${it.description}`,
-    required_action: `Confirm presence and adequacy of: ${it.description}`,
-    evidence: [],
-    priority: "medium",
-    requires_human_review: true,
-    human_review_reason: "Awaiting vision-based verification",
-    human_review_verify: it.description,
-    confidence_score: 0.4,
-    confidence_basis: "Checklist seed — no vision evidence yet",
+    finding: f.finding,
+    required_action: f.required_action,
+    evidence: (f.evidence ?? []).slice(0, 3).map((s) => s.slice(0, 200)),
+    priority: f.priority ?? "medium",
+    life_safety_flag: !!f.life_safety_flag,
+    permit_blocker: !!f.permit_blocker,
+    liability_flag: !!f.liability_flag,
+    requires_human_review: !!f.requires_human_review,
+    human_review_reason: f.human_review_reason ?? null,
+    human_review_verify: f.human_review_verify ?? null,
+    confidence_score: Math.max(0, Math.min(1, f.confidence_score ?? 0.5)),
+    confidence_basis: f.confidence_basis ?? "Vision-extracted",
+    model_version: "google/gemini-2.5-pro",
     status: "open",
   }));
-  if (rows.length === 0) return;
+
   const { error } = await admin.from("deficiencies_v2").insert(rows);
   if (error) throw error;
+  return rows.length;
 }
 
 async function stageCrossCheck(
