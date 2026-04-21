@@ -1476,7 +1476,7 @@ async function stageComplete(
 const VERIFY_SCHEMA = {
   name: "submit_verifications",
   description:
-    "For each finding supplied, return a verdict from a senior plans examiner challenging the original examiner's conclusion.",
+    "For each finding supplied, return a verdict from a senior plans examiner challenging the original examiner's conclusion. Use 'cannot_locate' if the cited element/area on the cited sheet is not visible to you in the supplied images — never auto-overturn for that reason; route to human review instead.",
   parameters: {
     type: "object",
     properties: {
@@ -1488,12 +1488,12 @@ const VERIFY_SCHEMA = {
             deficiency_id: { type: "string" },
             verdict: {
               type: "string",
-              enum: ["upheld", "overturned", "modified"],
+              enum: ["upheld", "overturned", "modified", "cannot_locate"],
             },
             reasoning: {
               type: "string",
               description:
-                "Why upheld/overturned/modified. Cite what the original examiner missed or got wrong.",
+                "Why upheld/overturned/modified/cannot_locate. For 'cannot_locate' explain what you searched for and where you couldn't find it.",
             },
             corrected_finding: {
               type: "string",
@@ -1524,6 +1524,7 @@ interface VerifyTarget {
   sheet_refs: string[];
   code_reference: { code?: string; section?: string; edition?: string } | null;
   confidence_score: number | null;
+  confidence_basis: string | null;
   priority: string;
   page_indices: number[];
 }
