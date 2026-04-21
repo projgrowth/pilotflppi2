@@ -179,6 +179,18 @@ export default function ReviewHealthStrip({
           </Chip>
         )}
 
+        {mergedGroups > 0 && (
+          <Chip
+            icon={<Layers className="h-3 w-3" />}
+            label="Dedupe"
+            value={`${mergedGroups} group${mergedGroups === 1 ? "" : "s"} · ${supersededCount} merged`}
+            tone="muted"
+            popoverWidthClass="w-[480px]"
+          >
+            <DedupeSummary meta={dedupeMeta} />
+          </Chip>
+        )}
+
         {memoryCount > 0 && (
           <Chip
             icon={<Brain className="h-3 w-3" />}
