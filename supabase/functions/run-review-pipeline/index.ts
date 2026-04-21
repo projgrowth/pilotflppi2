@@ -1537,7 +1537,7 @@ async function stageVerify(
   const { data: defsRaw, error } = await admin
     .from("deficiencies_v2")
     .select(
-      "id, def_number, discipline, finding, required_action, evidence, sheet_refs, code_reference, confidence_score, priority, life_safety_flag, permit_blocker, status, verification_status",
+      "id, def_number, discipline, finding, required_action, evidence, sheet_refs, code_reference, confidence_score, confidence_basis, priority, life_safety_flag, permit_blocker, status, verification_status",
     )
     .eq("plan_review_id", planReviewId)
     .neq("status", "resolved")
@@ -1555,6 +1555,7 @@ async function stageVerify(
     sheet_refs: string[] | null;
     code_reference: { code?: string; section?: string; edition?: string } | null;
     confidence_score: number | null;
+    confidence_basis: string | null;
     priority: string;
     life_safety_flag: boolean;
     permit_blocker: boolean;
@@ -1566,7 +1567,7 @@ async function stageVerify(
   });
 
   if (candidates.length === 0) {
-    return { upheld: 0, overturned: 0, modified: 0, examined: 0, skipped: 0 };
+    return { upheld: 0, overturned: 0, modified: 0, cannot_locate: 0, examined: 0, skipped: 0 };
   }
 
   // Map sheet_refs → page_index so we can attach the right images per finding.
@@ -1596,6 +1597,7 @@ async function stageVerify(
     sheet_refs: d.sheet_refs ?? [],
     code_reference: d.code_reference,
     confidence_score: d.confidence_score,
+    confidence_basis: d.confidence_basis,
     priority: d.priority,
     page_indices: Array.from(
       new Set(
@@ -1607,18 +1609,23 @@ async function stageVerify(
   }));
 
   const VERIFY_SYSTEM =
-    "You are a senior Florida plans examiner reviewing another examiner's work. " +
-    "Your job is to find reasons each finding might be WRONG. Look at the cited evidence and sheet images. " +
-    "Did the prior examiner misread the plan? Is the cited code section correct? Is the item actually shown elsewhere on the sheet that they missed? " +
+    "You are a senior Florida plans examiner adversarially auditing another examiner's findings. " +
+    "For each finding, you receive: the finding text, the cited code reference, the verbatim evidence the original examiner read off the sheet, their confidence basis, and the actual cited sheet image(s). " +
+    "Your job is to find reasons the finding might be WRONG — but you MUST distinguish between two failure modes:\n" +
+    "  (a) The finding is demonstrably incorrect — the plans clearly comply, the cited code does not apply, or the cited evidence is misquoted/out of context. → 'overturned'.\n" +
+    "  (b) You cannot locate the cited element/area on the supplied sheets, or the resolution/crop is insufficient to verify. → 'cannot_locate'. NEVER overturn for that reason.\n" +
     "Return verdicts via submit_verifications:\n" +
-    "- 'upheld' — the finding is valid as written.\n" +
-    "- 'overturned' — the finding is wrong; the plans actually comply or the cited code does not apply. Explain.\n" +
-    "- 'modified' — the finding is partially right but needs correction; provide corrected_finding and corrected_required_action.";
+    "- 'upheld' — finding is valid as written; cite the visible evidence that supports it.\n" +
+    "- 'overturned' — finding is provably wrong; cite the conflicting visible evidence.\n" +
+    "- 'modified' — finding is partially right but mis-stated; provide corrected_finding + corrected_required_action.\n" +
+    "- 'cannot_locate' — you cannot verify either way from the supplied images. Will be routed to human review.\n" +
+    "Be strict: 'overturned' requires positive evidence the finding is wrong, not absence of evidence.";
 
   const BATCH = 5;
   let upheld = 0;
   let overturned = 0;
   let modified = 0;
+  let cannotLocate = 0;
   let skipped = 0;
 
   for (let start = 0; start < targets.length; start += BATCH) {
@@ -1647,7 +1654,8 @@ async function stageVerify(
           `code_reference: ${code}\n` +
           `finding: ${t.finding}\n` +
           `required_action: ${t.required_action}\n` +
-          `evidence: ${t.evidence.length ? t.evidence.map((e) => `"${e}"`).join(" | ") : "(none cited)"}`
+          `original_examiner_evidence: ${t.evidence.length ? t.evidence.map((e) => `"${e}"`).join(" | ") : "(NONE — examiner had no quoted evidence; treat with extra skepticism)"}\n` +
+          `original_confidence_basis: ${t.confidence_basis ?? "(not provided)"}`
         );
       })
       .join("\n\n");
@@ -1655,9 +1663,10 @@ async function stageVerify(
     const userText =
       `Audit the following ${slice.length} finding${slice.length === 1 ? "" : "s"}. ` +
       `For EACH deficiency_id, return one entry in submit_verifications. ` +
-      `Be skeptical — the goal is to filter out false positives.\n\n` +
+      `When you cannot find the cited element on the supplied sheet images, return 'cannot_locate' — do NOT overturn.\n\n` +
       `${findingsText}\n\n` +
-      `The attached images are the cited sheets (in order).`;
+      `The attached images are the cited sheets (in the order listed above). ` +
+      `Each sheet has a 10×10 grid overlay (cells A0..J9) you can use to describe locations.`;
 
     const content: Array<
       | { type: "text"; text: string }
@@ -1673,7 +1682,7 @@ async function stageVerify(
     let result: {
       verifications: Array<{
         deficiency_id: string;
-        verdict: "upheld" | "overturned" | "modified";
+        verdict: "upheld" | "overturned" | "modified" | "cannot_locate";
         reasoning: string;
         corrected_finding?: string;
         corrected_required_action?: string;
@@ -1727,6 +1736,25 @@ async function stageVerify(
         }
         await admin.from("deficiencies_v2").update(patch).eq("id", target.id);
         modified++;
+      } else if (v.verdict === "cannot_locate") {
+        // Verifier could not find the cited element on the supplied images.
+        // Don't overturn — route to a human with full context so they can
+        // either confirm with the original sheet, request a clearer crop,
+        // or reject manually.
+        await admin
+          .from("deficiencies_v2")
+          .update({
+            verification_status: "needs_human",
+            verification_notes: reasoning,
+            requires_human_review: true,
+            human_review_reason:
+              "Senior verifier could not locate the cited element on the supplied sheet images.",
+            human_review_method:
+              "Open the cited sheet at full resolution and confirm presence/absence of the element described.",
+            human_review_verify: reasoning.slice(0, 500),
+          })
+          .eq("id", target.id);
+        cannotLocate++;
       } else {
         const newConf = Math.max(
           0,
@@ -1750,6 +1778,7 @@ async function stageVerify(
     upheld,
     overturned,
     modified,
+    cannot_locate: cannotLocate,
     skipped,
   };
 }
