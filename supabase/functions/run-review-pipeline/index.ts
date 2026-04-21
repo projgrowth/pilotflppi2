@@ -772,10 +772,28 @@ async function stageDisciplineReview(
     jurisdiction = (jr ?? null) as Record<string, unknown> | null;
   }
 
-  // Smart chunking — first 2 "general notes" pages (G-/T-/cover) seed every call.
-  const generalSheets = allSheets
-    .filter((s) => disciplineForSheet(s.sheet_ref) === null)
-    .slice(0, 2);
+  // Resolve each sheet's discipline: prefer the AI-extracted title-block
+  // discipline (sheet_coverage.discipline). Fall back to prefix heuristic ONLY
+  // for sheets the AI labelled General/Other but whose prefix is unambiguous.
+  type RoutedSheet = {
+    sheet_ref: string;
+    sheet_title: string | null;
+    page_index: number | null;
+    discipline: string | null; // resolved discipline (one of DISCIPLINES) or null = general
+  };
+  const routed: RoutedSheet[] = allSheets.map((s) => {
+    const aiResolved = normalizeAIDiscipline(s.discipline);
+    const fallback = aiResolved === null ? disciplineForSheetFallback(s.sheet_ref) : null;
+    return {
+      sheet_ref: s.sheet_ref,
+      sheet_title: s.sheet_title,
+      page_index: s.page_index,
+      discipline: aiResolved ?? fallback,
+    };
+  });
+
+  // Smart chunking — first 2 "general notes" pages (cover/title/code summary) seed every call.
+  const generalSheets = routed.filter((s) => s.discipline === null).slice(0, 2);
   const generalImageUrls = generalSheets
     .map((s) => signedUrls[s.page_index ?? -1]?.signed_url)
     .filter(Boolean) as string[];
@@ -785,9 +803,7 @@ async function stageDisciplineReview(
 
   for (const discipline of DISCIPLINES) {
     try {
-      const disciplineSheets = allSheets.filter(
-        (s) => disciplineForSheet(s.sheet_ref) === discipline,
-      );
+      const disciplineSheets = routed.filter((s) => s.discipline === discipline);
       const disciplineImageUrls = disciplineSheets
         .map((s) => signedUrls[s.page_index ?? -1]?.signed_url)
         .filter(Boolean) as string[];
@@ -803,7 +819,7 @@ async function stageDisciplineReview(
           required_action: `Confirm whether ${discipline} scope applies; if so, request the missing sheets.`,
           priority: "medium",
           requires_human_review: true,
-          human_review_reason: "No sheets routed to this discipline by sheet-prefix mapping.",
+          human_review_reason: "No sheets routed to this discipline (AI title-block + prefix fallback both empty).",
           human_review_method: "Reviewer: confirm scope and request missing sheets if applicable.",
           confidence_score: 0.3,
           confidence_basis: "Sheet routing produced no inputs for this discipline.",
