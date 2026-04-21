@@ -172,12 +172,16 @@ export default function ReviewDashboard() {
         />
       )}
 
-      <Tabs defaultValue="deficiencies" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
           <TabsTrigger value="deficiencies">Deficiencies</TabsTrigger>
           <TabsTrigger value="human">Human Review</TabsTrigger>
           <TabsTrigger value="deferred">
             Deferred Scope{deferredItems.length > 0 ? ` (${deferredItems.length})` : ""}
+          </TabsTrigger>
+          <TabsTrigger value="audit">
+            <Layers className="mr-1 h-3.5 w-3.5" />
+            Dedupe Audit{dedupeMergeCount > 0 ? ` (${dedupeMergeCount})` : ""}
           </TabsTrigger>
           <TabsTrigger value="dna">Project DNA</TabsTrigger>
           <TabsTrigger value="coverage">Sheet Coverage</TabsTrigger>
@@ -190,6 +194,12 @@ export default function ReviewDashboard() {
         </TabsContent>
         <TabsContent value="deferred" className="mt-4">
           <DeferredScopePanel planReviewId={id} />
+        </TabsContent>
+        <TabsContent value="audit" className="mt-4">
+          <DedupeAuditTrail
+            planReviewId={id}
+            onJump={() => setActiveTab("deficiencies")}
+          />
         </TabsContent>
         <TabsContent value="dna" className="mt-4">
           <ProjectDNAViewer planReviewId={id} jurisdictionMismatch={jurisdictionMismatch} />
