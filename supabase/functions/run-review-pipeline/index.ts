@@ -114,18 +114,20 @@ async function withRetry<T>(
   throw lastErr;
 }
 
+type ChatMessage = {
+  role: "system" | "user";
+  content: string | Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string } }
+  >;
+};
+
 async function callAI(
-  systemPrompt: string,
-  userPrompt: string,
+  messages: ChatMessage[],
   toolSchema?: Record<string, unknown>,
+  model = "google/gemini-2.5-pro",
 ) {
-  const body: Record<string, unknown> = {
-    model: "google/gemini-3-flash-preview",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-  };
+  const body: Record<string, unknown> = { model, messages };
   if (toolSchema) {
     body.tools = [{ type: "function", function: toolSchema }];
     body.tool_choice = {
@@ -162,6 +164,121 @@ async function callAI(
   }
   return data.choices?.[0]?.message?.content ?? "";
 }
+
+// ---------- discipline routing ----------
+
+/** Map a sheet_ref prefix to the discipline that should review it. */
+function disciplineForSheet(sheetRef: string): string | null {
+  const p = sheetRef.trim().toUpperCase()[0];
+  switch (p) {
+    case "A":
+      return "Architectural";
+    case "S":
+      return "Structural";
+    case "M":
+    case "P":
+    case "E":
+    case "F":
+      return "MEP";
+    case "L":
+      return "Accessibility"; // life-safety / landscape sometimes
+    default:
+      return null; // G-, T-, cover sheets → general notes, sent to every call
+  }
+}
+
+/** Sign each plan file (PDFs/images in `documents` bucket) for vision input. */
+async function signedSheetUrls(
+  admin: ReturnType<typeof createClient>,
+  planReviewId: string,
+): Promise<Array<{ file_path: string; signed_url: string }>> {
+  const { data: files, error } = await admin
+    .from("plan_review_files")
+    .select("file_path")
+    .eq("plan_review_id", planReviewId)
+    .order("uploaded_at", { ascending: true });
+  if (error) throw error;
+  const out: Array<{ file_path: string; signed_url: string }> = [];
+  for (const f of (files ?? []) as Array<{ file_path: string }>) {
+    const { data: signed, error: sErr } = await admin.storage
+      .from("documents")
+      .createSignedUrl(f.file_path, 60 * 30);
+    if (sErr || !signed) continue;
+    out.push({ file_path: f.file_path, signed_url: signed.signedUrl });
+  }
+  return out;
+}
+
+const FINDINGS_SCHEMA = {
+  name: "submit_discipline_findings",
+  description:
+    "Return discipline-specific deficiencies grounded in visible evidence on the supplied plan sheets. If a required item is not visible, raise a deficiency with requires_human_review=true.",
+  parameters: {
+    type: "object",
+    properties: {
+      findings: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            finding: {
+              type: "string",
+              description: "1–2 plain-language sentences describing the deficiency.",
+            },
+            required_action: {
+              type: "string",
+              description: "Specific corrective action the design team must take.",
+            },
+            sheet_refs: {
+              type: "array",
+              items: { type: "string" },
+              description: "Sheet identifier(s) the finding cites (e.g. A-101).",
+            },
+            code_section: {
+              type: "string",
+              description: "FBC section or other code reference (e.g. 1006.2.1).",
+            },
+            evidence: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Verbatim text snippets read from the plan sheets that support the finding (max 3, ≤200 chars each). Empty if missing-information finding.",
+            },
+            confidence_score: {
+              type: "number",
+              minimum: 0,
+              maximum: 1,
+            },
+            confidence_basis: {
+              type: "string",
+              description:
+                "Why this confidence — what was directly visible vs inferred.",
+            },
+            life_safety_flag: { type: "boolean" },
+            permit_blocker: { type: "boolean" },
+            liability_flag: { type: "boolean" },
+            requires_human_review: { type: "boolean" },
+            human_review_reason: { type: "string" },
+            human_review_verify: { type: "string" },
+            priority: { type: "string", enum: ["high", "medium", "low"] },
+          },
+          required: [
+            "finding",
+            "required_action",
+            "sheet_refs",
+            "evidence",
+            "confidence_score",
+            "confidence_basis",
+            "priority",
+          ],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["findings"],
+    additionalProperties: false,
+  },
+} as const;
 
 // ---------- stage implementations ----------
 // Note: these are intentionally lightweight scaffolds. They populate the new
