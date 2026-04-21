@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import ReviewStatusBar from "@/components/review-dashboard/ReviewStatusBar";
 import ReviewSummaryHeader from "@/components/review-dashboard/ReviewSummaryHeader";
+import CrossCheckBanner from "@/components/review-dashboard/CrossCheckBanner";
 import DeficiencyList from "@/components/review-dashboard/DeficiencyList";
 import HumanReviewQueue from "@/components/review-dashboard/HumanReviewQueue";
 import ProjectDNAViewer from "@/components/review-dashboard/ProjectDNAViewer";
