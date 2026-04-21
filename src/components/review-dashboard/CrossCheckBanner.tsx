@@ -256,10 +256,19 @@ export default function CrossCheckBanner({ planReviewId }: Props) {
             Cross-check found {total} issue{total === 1 ? "" : "s"}
           </span>
           <span className="text-xs text-muted-foreground">
-            {duplicates.length > 0 && `${duplicates.length} duplicate${duplicates.length === 1 ? "" : "s"}`}
-            {duplicates.length > 0 && contradictions.length > 0 && " · "}
-            {contradictions.length > 0 &&
-              `${contradictions.length} contradiction${contradictions.length === 1 ? "" : "s"}`}
+            {[
+              duplicates.length > 0
+                ? `${duplicates.length} duplicate${duplicates.length === 1 ? "" : "s"}`
+                : null,
+              contradictions.length > 0
+                ? `${contradictions.length} contradiction${contradictions.length === 1 ? "" : "s"}`
+                : null,
+              consistencyMismatches.length > 0
+                ? `${consistencyMismatches.length} cross-sheet mismatch${consistencyMismatches.length === 1 ? "" : "es"}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </span>
         </div>
         {open ? (
