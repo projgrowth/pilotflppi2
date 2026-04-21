@@ -462,12 +462,17 @@ ${renderDnaTable(input.dna)}
 <p class="muted">Sorted by priority: Life Safety → Permit Blockers → Liability → Medium → Low.</p>
 ${renderDeficiencies(input.deficiencies)}
 
-<!-- ========== SECTION 5: OBSERVATIONS ========== -->
-<h2>5. General Observations</h2>
+<!-- ========== SECTION 5: DEFERRED SCOPE ITEMS ========== -->
+<h2>5. Deferred Scope Items</h2>
+<p class="muted">Items the plans defer to a separate submittal package. Must be submitted, reviewed, and permitted prior to installation.</p>
+${renderDeferredScope(input.deferredItems ?? [])}
+
+<!-- ========== SECTION 6: OBSERVATIONS ========== -->
+<h2>6. General Observations</h2>
 ${renderObservations(input.observations ?? [])}
 
-<!-- ========== SECTION 6: CERTIFICATION ========== -->
-<h2>6. Private Provider Certification</h2>
+<!-- ========== SECTION 7: CERTIFICATION ========== -->
+<h2>7. Private Provider Certification</h2>
 <div class="cert">
   <p>
     Pursuant to <strong>Florida Statute §553.791</strong>, the undersigned Private Provider
