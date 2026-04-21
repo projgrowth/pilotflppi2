@@ -300,3 +300,46 @@ function Chip({
     </Popover>
   );
 }
+
+function DedupeSummary({ meta }: { meta: DedupeMetadata }) {
+  const merges = meta.merges ?? [];
+  return (
+    <div className="space-y-2 p-2">
+      <div className="flex items-center justify-between border-b pb-1.5">
+        <div className="text-xs font-semibold">Cross-discipline dedupe</div>
+        <div className="font-mono text-2xs text-muted-foreground">
+          {meta.examined ?? 0} examined · {meta.findings_superseded ?? 0} merged
+        </div>
+      </div>
+      <p className="text-2xs text-muted-foreground">
+        Same code section flagged by multiple disciplines on overlapping sheets — losers were
+        marked superseded and waived. Open a finding and flip status back to "open" if a
+        merge looks wrong.
+      </p>
+      {merges.length === 0 ? (
+        <div className="py-3 text-center text-2xs text-muted-foreground">
+          No duplicates detected.
+        </div>
+      ) : (
+        <ul className="space-y-1.5">
+          {merges.slice(0, 8).map((m, i) => (
+            <li
+              key={i}
+              className="rounded border border-border/60 bg-muted/30 p-1.5 text-2xs"
+            >
+              <div className="font-mono text-muted-foreground">
+                +{m.loser_count} merged
+              </div>
+              <div className="mt-0.5 leading-snug">{m.reason}</div>
+            </li>
+          ))}
+          {merges.length > 8 && (
+            <li className="text-center text-2xs text-muted-foreground">
+              +{merges.length - 8} more
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
