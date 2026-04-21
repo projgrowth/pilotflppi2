@@ -1094,7 +1094,7 @@ export default function PlanReviewDetail() {
  };
  window.addEventListener("keydown", handler);
  return () => window.removeEventListener("keydown", handler);
- }, [activeFindingIndex, review, updateFindingStatus]);
+ }, [activeFindingIndex, review, v2Findings, updateFindingStatus]);
 
  if (isLoading) {
  return (
