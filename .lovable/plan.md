@@ -1,82 +1,100 @@
 
 
-# Plan Review Precision — Next Wave
+# Plan Review Cleanup Wave
 
-## The two biggest precision gaps right now
+Four targeted refactors to tighten the dashboard, share logic across surfaces, and shrink the largest component. No behavior regressions — every change preserves what's currently shown, just packaged better.
 
-1. **Reviewers can't quickly verify AI findings.** Every deficiency in `deficiencies_v2` already has `evidence[]` (verbatim plan text), `code_reference` (jsonb), `sheet_refs[]`, and `confidence_basis` — but `DeficiencyCard` only shows the def number and sheet list. Reviewers have no fast way to see *why* the AI flagged it or jump to the cited spot.
-2. **No adversarial pass.** The pipeline runs each discipline once and trusts the output. Industry-standard precision technique: run a second "challenger" pass on every flagged item asking "is this actually a code violation, or did the prior pass misread the plan?" — drops false-positives 30-50%.
+## 1. Consolidate dashboard banners into one "Review Health" strip
 
-## What we're building
-
-### A. Evidence-first DeficiencyCard
-
-Expand each card to show what the AI saw, with one-click verification:
+Today `ReviewDashboard.tsx` stacks five full-width cards before the tabs even appear:
 
 ```text
-┌─ DEF-A-003  ARCH  [Permit Blocker]  conf 0.82 ──┐
-│ Finding: Egress door swing direction not noted   │
-│ Required: Per FBC 1010.1.2 …                     │
-│                                                  │
-│ Sheets: [A-101] [A-102]    [Open A-101 →]        │
-│                                                  │
-│ ▼ Why the AI flagged this (evidence)             │
-│   "DOOR 101A — 36"x84"" — A-101 grid C4         │
-│   "EGRESS PATH" — A-101 general notes            │
-│   Confidence basis: Door schedule shown but      │
-│   swing direction symbol missing on plan view.   │
-│                                                  │
-│   [Confirm] [Reject — false positive] [Modify]   │
-└──────────────────────────────────────────────────┘
+ReviewStatusBar      (pipeline stage progress)
+VerificationBanner   (X upheld · Y overturned · Z modified)
+ReviewerMemoryCard   (N learned corrections applied)
+CrossCheckBanner     (cross-discipline conflicts)
+ReviewSummaryHeader  (project name / address / jurisdiction)
 ```
 
-- `Open A-101 →` opens the matching `plan_review_files` PDF in a new tab/drawer at the cited page (fall back to first page if no page index stored).
-- Rejecting a finding writes to `review_feedback` (already exists) — feeds the learning loop.
-- Confidence basis shown verbatim from `confidence_basis`.
+Replace with a single `ReviewHealthStrip` component — one bordered card, two rows:
 
-### B. Adversarial verification stage (`verify`)
+- **Row 1 (always visible)**: project name · address · jurisdiction · current pipeline stage chip · status pill (moves down from the page header).
+- **Row 2 (compact metric chips)**: `Verification 47/8/3` · `Memory 23 applied` · `Cross-check 2 conflicts` · `Pipeline ▸ verify`. Each chip is a `Popover` trigger — click to expand the full banner content inline. Conflict/overturned counts > 0 get an amber accent border (per Core memory rule: static accent, no animation).
 
-New stage inserted between `discipline_review` and `cross_check`:
+Cuts ~600px of vertical real estate on first paint. Tabs land above the fold on a 1213px viewport.
+
+## 2. Split `DeficiencyCard.tsx` into focused sub-components
+
+Current file is ~500 lines mixing display, evidence collapsibles, rejection dialog wiring, and PDF deep-link logic. Split into:
 
 ```text
-upload → sheet_map → dna_extract → discipline_review
-       → verify ← NEW
-       → cross_check → deferred_scope → prioritize → complete
+src/components/review-dashboard/deficiency/
+  DeficiencyCard.tsx         (orchestrator, ~80 lines)
+  DeficiencyHeader.tsx       (def number, badges, confidence, sheet chips, "Open Sheet →")
+  DeficiencyEvidence.tsx     (Collapsible: evidence[], confidence_basis)
+  DeficiencyActions.tsx      (Confirm / Reject / Modify buttons + dialog wiring)
 ```
 
-For every deficiency where `confidence_score < 0.85` OR `priority = high|critical`:
+Each piece receives `def: DeficiencyV2Row` plus narrow callbacks. Pure presentational where possible. Existing `DeficiencyCard` import path stays the same (re-export from the new orchestrator) so no other files need to change.
 
-1. Send Gemini 2.5 Pro the original finding + evidence + the same sheet images.
-2. Prompt: *"You are a senior plans examiner reviewing another examiner's work. Your job is to find reasons this finding is WRONG. Look at the cited evidence. Did the prior examiner misread the plan? Is this actually shown elsewhere on the sheet? Is the cited code section the correct one?"*
-3. Tool-call response: `{ verdict: "upheld" | "overturned" | "modified", reasoning, suggested_fix }`.
-4. Outcomes:
-   - **upheld** → bump `confidence_score` by 0.1, mark `verification_status = "verified"`.
-   - **overturned** → set `status = "rejected"`, `reviewer_notes = "Overturned in adversarial verification: <reasoning>"` — never reaches the comment letter.
-   - **modified** → keep finding, replace `finding`/`required_action` with corrected version, set `requires_human_review = true`.
+## 3. Extract shared filter/sort logic into `useFilteredDeficiencies`
 
-A small banner on the dashboard summarizes: "Verification pass: 47 upheld · 8 overturned · 3 modified."
+Right now `DeficiencyList.tsx` hides overturned items and sorts by severity → human-review → confidence. `HumanReviewQueue.tsx` does its own filtering and ordering. The two will drift.
 
-### C. Confidence-weighted ordering on the dashboard
+Create `src/hooks/useFilteredDeficiencies.ts`:
 
-DeficiencyList already groups by priority. Add a sub-sort by `confidence_score DESC` so high-conviction items rise to the top of each bucket. Items with `requires_human_review = true` get a yellow left-border + "Needs human eyes" chip.
+```ts
+useFilteredDeficiencies(planReviewId, {
+  hideOverturned?: boolean,        // default true
+  onlyHumanReview?: boolean,       // default false
+  groupBy?: 'discipline' | 'none', // default 'discipline'
+})
+```
 
-## Technical notes
+Returns `{ items, grouped, counts: { total, hidden, humanReview } }`. Both `DeficiencyList` and `HumanReviewQueue` consume it. Sort logic (`severityRank`, `compareDefs`) moves into the hook file as pure helpers — unit-testable.
 
-- **Schema**: add nullable column `deficiencies_v2.verification_status text` (`unverified | verified | overturned | modified`) and `verification_notes text`. No data migration needed — defaults to `unverified` for existing rows.
-- **Edge function**: add `stageVerify()` to `run-review-pipeline/index.ts`. Reuses `LOVABLE_API_KEY` and existing sheet-rendering helpers. Batches 5 findings per Gemini call to control latency. Total added pipeline time ≈ 30-90s for a typical review.
-- **PDF page jump**: `plan_review_files` stores the file path in storage. Sheet-map already records `page_index` per sheet — use it to build `?page=N` deep-links into a lightweight viewer route (`/plan-review/:id?file=...&page=N`) reusing `PlanMarkupViewer`.
-- **DeficiencyCard**: wrap evidence in shadcn `Collapsible` (already used in `DeferredScopePanel`) for consistent UX. Default open when `confidence_score < 0.7`, collapsed otherwise.
-- **County report** (`src/lib/county-report.ts`): suppress findings with `verification_status = "overturned"` and add a small footer line: "AI-verified findings only · X items overturned during internal verification."
+## 4. Extract `determineStatus()` to `src/lib/review-status.ts`
 
-## What this changes for the user
+Currently lives at the bottom of `ReviewDashboard.tsx` and is called only there, but `county-report.ts` re-derives status from the same fields with subtly different logic. Move to:
 
-- False positives sent to contractors drop sharply (overturned items never enter the letter).
-- Reviewers stop hunting through PDFs to verify AI claims — evidence is right there.
-- High-confidence items get processed faster; low-confidence ones get explicit attention.
-- The county report becomes more defensible: every shipped finding survived a second AI pass.
+```text
+src/lib/review-status.ts
+  - determineReviewStatus(defs): ReviewStatus
+  - REVIEW_STATUS_LABELS: Record<ReviewStatus, { label, tone }>
+  - StatusPill component (moved from ReviewDashboard)
+```
 
-## Out of scope (next waves)
+`county-report.ts` imports it so the report header and the dashboard pill can never disagree. `StatusPill` becomes shareable for the new health strip and any future surface (e.g. project list row).
 
-- Admin prompt editor for the verification prompt (use a hardcoded prompt for now; we'll add `prompt_versions` integration later).
-- Per-finding "Open in PDF Viewer" with auto-zoom to coordinates (ships with file+page jump first; coordinate jump comes after we wire `grid_cell` into deficiencies_v2).
+## Bonus polish included
+
+- `CrossCheckBanner` content collapses by default behind its chip in the new strip — only expands when count > 0 or user clicks.
+- Plan-viewer deep-link from `DeficiencyHeader` opens in the same tab when the user is already inside `/plan-review/:id`, new tab otherwise — fewer orphan tabs.
+
+## Files
+
+**New**
+- `src/components/review-dashboard/ReviewHealthStrip.tsx`
+- `src/components/review-dashboard/deficiency/DeficiencyHeader.tsx`
+- `src/components/review-dashboard/deficiency/DeficiencyEvidence.tsx`
+- `src/components/review-dashboard/deficiency/DeficiencyActions.tsx`
+- `src/hooks/useFilteredDeficiencies.ts`
+- `src/lib/review-status.ts`
+
+**Modified**
+- `src/pages/ReviewDashboard.tsx` — replace 5 banners with `<ReviewHealthStrip>`, import status from new lib
+- `src/components/review-dashboard/DeficiencyCard.tsx` — slim orchestrator, re-exports unchanged
+- `src/components/review-dashboard/DeficiencyList.tsx` — consume `useFilteredDeficiencies`
+- `src/components/review-dashboard/HumanReviewQueue.tsx` — consume `useFilteredDeficiencies`
+- `src/lib/county-report.ts` — import `determineReviewStatus` instead of local copy
+
+**Untouched** (intentionally — still mounted inside the new strip's popovers)
+- `ReviewStatusBar.tsx`, `VerificationBanner.tsx`, `ReviewerMemoryCard.tsx`, `CrossCheckBanner.tsx`, `ReviewSummaryHeader.tsx`
+
+## What the user sees
+
+- Dashboard opens with tabs visible above the fold instead of after a wall of banners.
+- Same information, one click away inside metric chips.
+- Deficiency cards render identically but are now half the file size each — faster to iterate on.
+- Status pill on the dashboard and status text in the generated PDF report can never disagree again.
 
