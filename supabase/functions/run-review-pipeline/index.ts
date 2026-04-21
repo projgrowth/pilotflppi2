@@ -300,6 +300,56 @@ async function stageUpload(
   return { file_count: data.length };
 }
 
+const SHEET_MAP_SCHEMA = {
+  name: "submit_sheet_map",
+  description:
+    "Return one entry per supplied page. Read the actual title block. If a page has no recognizable sheet number (e.g. response letter, calc cover), set sheet_ref to 'X-NA' and discipline to 'General'.",
+  parameters: {
+    type: "object",
+    properties: {
+      sheets: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            page_index: { type: "integer", minimum: 0 },
+            sheet_ref: {
+              type: "string",
+              description:
+                "Sheet identifier exactly as printed in the title block (e.g. A-101, S2.01, M-001).",
+            },
+            sheet_title: { type: "string" },
+            discipline: {
+              type: "string",
+              enum: [
+                "General",
+                "Architectural",
+                "Structural",
+                "MEP",
+                "Energy",
+                "Accessibility",
+                "Civil",
+                "Landscape",
+                "Other",
+              ],
+            },
+          },
+          required: ["page_index", "sheet_ref", "discipline"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["sheets"],
+    additionalProperties: false,
+  },
+} as const;
+
+const EXPECTED_SHEETS_BY_DISCIPLINE: Record<string, string[]> = {
+  Architectural: ["A-001", "A-101", "A-201"],
+  Structural: ["S-001", "S-101"],
+  MEP: ["M-101", "E-101", "P-101"],
+};
+
 async function stageSheetMap(
   admin: ReturnType<typeof createClient>,
   planReviewId: string,
@@ -312,34 +362,117 @@ async function stageSheetMap(
     .eq("plan_review_id", planReviewId);
   if ((count ?? 0) > 0) return { sheets: count };
 
-  // Seed an expected-sheet baseline so the SheetCoverageMap shows something
-  // useful even before vision extraction runs. The discipline_review stage
-  // (next PR) will mark these present/missing based on actual extraction.
-  const baseline = [
-    { sheet_ref: "G-001", sheet_title: "Cover / Code Summary", discipline: "General" },
-    { sheet_ref: "A-001", sheet_title: "Site Plan", discipline: "Architectural" },
-    { sheet_ref: "A-101", sheet_title: "Floor Plan", discipline: "Architectural" },
-    { sheet_ref: "A-201", sheet_title: "Elevations", discipline: "Architectural" },
-    { sheet_ref: "S-001", sheet_title: "Structural Notes", discipline: "Structural" },
-    { sheet_ref: "S-101", sheet_title: "Foundation Plan", discipline: "Structural" },
-    { sheet_ref: "M-101", sheet_title: "Mechanical Plan", discipline: "MEP" },
-    { sheet_ref: "E-101", sheet_title: "Electrical Plan", discipline: "MEP" },
-    { sheet_ref: "P-101", sheet_title: "Plumbing Plan", discipline: "MEP" },
-  ];
+  const signed = await signedSheetUrls(admin, planReviewId);
+  if (signed.length === 0) throw new Error("No signed file URLs available");
 
-  const rows = baseline.map((b, i) => ({
+  // Vision-extract the actual title block from each page in batches of 8.
+  const present: Array<{
+    page_index: number;
+    sheet_ref: string;
+    sheet_title: string | null;
+    discipline: string;
+  }> = [];
+
+  const BATCH = 8;
+  for (let start = 0; start < signed.length; start += BATCH) {
+    const slice = signed.slice(start, start + BATCH);
+    const userText =
+      `Identify each page's title block. The pages are supplied in order. ` +
+      `page_index values for this batch must be ${start}..${start + slice.length - 1}. ` +
+      `Return one entry per page via submit_sheet_map.`;
+    const content: Array<
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } }
+    > = [
+      { type: "text", text: userText },
+      ...slice.map((s) => ({
+        type: "image_url" as const,
+        image_url: { url: s.signed_url },
+      })),
+    ];
+
+    try {
+      const result = (await callAI(
+        [
+          {
+            role: "system",
+            content:
+              "You are a Florida plan reviewer indexing a construction document set. Read each page's title block exactly. Never invent sheet numbers.",
+          },
+          { role: "user", content },
+        ],
+        SHEET_MAP_SCHEMA as unknown as Record<string, unknown>,
+        "google/gemini-2.5-flash",
+      )) as {
+        sheets: Array<{
+          page_index: number;
+          sheet_ref: string;
+          sheet_title?: string;
+          discipline: string;
+        }>;
+      };
+      for (const s of result?.sheets ?? []) {
+        present.push({
+          page_index: s.page_index,
+          sheet_ref: (s.sheet_ref || `X-${s.page_index}`).toUpperCase().slice(0, 32),
+          sheet_title: s.sheet_title?.slice(0, 200) ?? null,
+          discipline: s.discipline ?? "General",
+        });
+      }
+    } catch (err) {
+      console.error(`[sheet_map] batch ${start} failed:`, err);
+      // Fall back to a placeholder entry for each page in this batch
+      for (let i = 0; i < slice.length; i++) {
+        present.push({
+          page_index: start + i,
+          sheet_ref: `X-${start + i}`,
+          sheet_title: null,
+          discipline: "General",
+        });
+      }
+    }
+  }
+
+  const presentRows = present.map((p) => ({
     plan_review_id: planReviewId,
     firm_id: firmId,
-    sheet_ref: b.sheet_ref,
-    sheet_title: b.sheet_title,
-    discipline: b.discipline,
+    sheet_ref: p.sheet_ref,
+    sheet_title: p.sheet_title,
+    discipline: p.discipline,
     expected: true,
-    status: "missing_minor", // until extraction confirms presence
-    page_index: i,
+    status: "present",
+    page_index: p.page_index,
   }));
-  const { error } = await admin.from("sheet_coverage").insert(rows);
+
+  // Compute missing-critical sheets per discipline (heuristic baseline).
+  const presentRefs = new Set(present.map((p) => p.sheet_ref));
+  const missingRows: typeof presentRows = [];
+  for (const [discipline, expected] of Object.entries(EXPECTED_SHEETS_BY_DISCIPLINE)) {
+    for (const ref of expected) {
+      if (!presentRefs.has(ref)) {
+        missingRows.push({
+          plan_review_id: planReviewId,
+          firm_id: firmId,
+          sheet_ref: ref,
+          sheet_title: null,
+          discipline,
+          expected: true,
+          status: "missing_critical",
+          page_index: null,
+        });
+      }
+    }
+  }
+
+  const allRows = [...presentRows, ...missingRows];
+  if (allRows.length === 0) return { sheets: 0 };
+  const { error } = await admin.from("sheet_coverage").insert(allRows);
   if (error) throw error;
-  return { sheets: rows.length };
+  return {
+    sheets: allRows.length,
+    present: presentRows.length,
+    missing_critical: missingRows.length,
+  };
 }
 
 async function stageDnaExtract(
