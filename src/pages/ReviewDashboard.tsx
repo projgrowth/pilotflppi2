@@ -79,7 +79,15 @@ export default function ReviewDashboard() {
   const { data: defs = [] } = useDeficienciesV2(id);
   const { data: sheets = [] } = useSheetCoverage(id);
   const { data: deferredItems = [] } = useDeferredScope(id);
+  const { data: pipeRows = [] } = usePipelineStatus(id);
   const { firmSettings } = useFirmSettings();
+
+  const dedupeMergeCount = useMemo(() => {
+    const row = pipeRows.find((r) => r.stage === "dedupe");
+    const meta = (row as unknown as { metadata?: { groups_merged?: number } } | undefined)
+      ?.metadata;
+    return meta?.groups_merged ?? 0;
+  }, [pipeRows]);
 
   const status = useMemo(() => determineReviewStatus(defs), [defs]);
   const jurisdictionMismatch =
