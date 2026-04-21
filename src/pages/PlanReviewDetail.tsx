@@ -223,6 +223,14 @@ export default function PlanReviewDetail() {
 
  const handleRepositionConfirm = useCallback(async (idx: number, newMarkup: { page_index: number; x: number; y: number; width: number; height: number }) => {
  if (!review) return;
+ // V2 source of truth doesn't store per-finding pin coordinates yet — repositioning
+ // would write to ai_findings (ignored on reload) and silently fail. Until V2 markup
+ // lands, route the reviewer to do this on the V1 round if needed.
+ if (review.pipeline_version === "v2") {
+  toast.error("Pin repositioning isn't available for V2 reviews yet — V2 findings reference sheets, not pixel coordinates.");
+  setRepositioningIndex(null);
+  return;
+ }
  const current = (review.ai_findings as Finding[]) || [];
  // A human-placed pin is always high confidence and must never be downgraded on reload.
  const updated = current.map((f, i) => i === idx ? {
@@ -510,6 +518,13 @@ export default function PlanReviewDetail() {
  };
 
  const runAICheck = async (r: PlanReviewRow) => {
+ // V2 reviews must run via the V2 pipeline (Run Pipeline on the dashboard).
+ // Allowing the legacy v1 check here would overwrite ai_findings and create
+ // a second source of truth that disagrees with deficiencies_v2.
+ if (r.pipeline_version === "v2") {
+  toast.error("This review uses the V2 pipeline. Use 'Run Pipeline' on the V2 dashboard.");
+  return;
+ }
  setAiRunning(true);
  setRightPanel("findings");
  setActiveFindingIndex(null);
