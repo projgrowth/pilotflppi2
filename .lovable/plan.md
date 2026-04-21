@@ -1,106 +1,82 @@
 
 
-# Plan Review UX & Error-Prevention Improvements
+# Plan Review Precision — Next Wave
 
-Goal: make Plan Review faster, calmer, and harder to mess up. Below are concrete changes grouped by impact. We can ship in waves.
+## The two biggest precision gaps right now
 
----
+1. **Reviewers can't quickly verify AI findings.** Every deficiency in `deficiencies_v2` already has `evidence[]` (verbatim plan text), `code_reference` (jsonb), `sheet_refs[]`, and `confidence_basis` — but `DeficiencyCard` only shows the def number and sheet list. Reviewers have no fast way to see *why* the AI flagged it or jump to the cited spot.
+2. **No adversarial pass.** The pipeline runs each discipline once and trusts the output. Industry-standard precision technique: run a second "challenger" pass on every flagged item asking "is this actually a code violation, or did the prior pass misread the plan?" — drops false-positives 30-50%.
 
-## Wave 1 — Prevent the most common mistakes (high impact, low risk)
+## What we're building
 
-1. **Confirm-before-destructive actions**
-   - Add confirm dialogs (with "don't ask again" per session) for: deleting findings, marking all resolved, regenerating the comment letter (overwrites edits), starting a new round, sending to contractor.
-   - Today these fire instantly — easy to lose work.
+### A. Evidence-first DeficiencyCard
 
-2. **Autosave + dirty-state guard on the comment letter**
-   - Debounced autosave (1.5s) to `plan_reviews.comment_letter_draft` (new column) + visible "Saved · 2s ago" indicator.
-   - Block route changes / tab close with `beforeunload` if unsaved.
-   - Today the textarea is in-memory only — refresh wipes it.
+Expand each card to show what the AI saw, with one-click verification:
 
-3. **Upload safety net**
-   - Pre-upload checks: file type (PDF only), size cap (e.g. 100 MB/file), page-count sanity (warn >150 pages).
-   - Per-file progress bar + cancel button + retry-on-fail (no silent failures).
-   - Block "Run AI Check" while any upload is still in flight.
+```text
+┌─ DEF-A-003  ARCH  [Permit Blocker]  conf 0.82 ──┐
+│ Finding: Egress door swing direction not noted   │
+│ Required: Per FBC 1010.1.2 …                     │
+│                                                  │
+│ Sheets: [A-101] [A-102]    [Open A-101 →]        │
+│                                                  │
+│ ▼ Why the AI flagged this (evidence)             │
+│   "DOOR 101A — 36"x84"" — A-101 grid C4         │
+│   "EGRESS PATH" — A-101 general notes            │
+│   Confidence basis: Door schedule shown but      │
+│   swing direction symbol missing on plan view.   │
+│                                                  │
+│   [Confirm] [Reject — false positive] [Modify]   │
+└──────────────────────────────────────────────────┘
+```
 
-4. **QC gate visible everywhere**
-   - Single source of truth chip ("Pending QC / Approved / Rejected") shown in topbar AND on the Send button. Disable Send + Document Package generation until QC = approved (already partially done — finish it).
-   - Show *who* approved/rejected and *when*.
+- `Open A-101 →` opens the matching `plan_review_files` PDF in a new tab/drawer at the cited page (fall back to first page if no page index stored).
+- Rejecting a finding writes to `review_feedback` (already exists) — feeds the learning loop.
+- Confidence basis shown verbatim from `confidence_basis`.
 
----
+### B. Adversarial verification stage (`verify`)
 
-## Wave 2 — Reduce cognitive load while reviewing
+New stage inserted between `discipline_review` and `cross_check`:
 
-5. **Keyboard-first navigation**
-   - `j/k` — next/prev finding (auto-scroll PDF to its pin)
-   - `r` — toggle resolve, `o` — reopen, `f` — flag for QC, `/` — focus search
-   - `?` — overlay listing all shortcuts
-   - Power users stop hunting through accordions.
+```text
+upload → sheet_map → dna_extract → discipline_review
+       → verify ← NEW
+       → cross_check → deferred_scope → prioritize → complete
+```
 
-6. **Pin ↔ card sync**
-   - Clicking a pin on the PDF highlights + scrolls its card; clicking a card highlights its pin and centers the PDF on it. Add a soft pulse animation so the eye finds it.
-   - Currently the link is one-way and easy to lose.
+For every deficiency where `confidence_score < 0.85` OR `priority = high|critical`:
 
-7. **Smart defaults on the findings list**
-   - Auto-collapse discipline groups beyond the first 3; only "Critical" stays open by default.
-   - Sticky "Active filters" summary chip ("3 filters · 12 of 47 findings") with one-click clear.
+1. Send Gemini 2.5 Pro the original finding + evidence + the same sheet images.
+2. Prompt: *"You are a senior plans examiner reviewing another examiner's work. Your job is to find reasons this finding is WRONG. Look at the cited evidence. Did the prior examiner misread the plan? Is this actually shown elsewhere on the sheet? Is the cited code section the correct one?"*
+3. Tool-call response: `{ verdict: "upheld" | "overturned" | "modified", reasoning, suggested_fix }`.
+4. Outcomes:
+   - **upheld** → bump `confidence_score` by 0.1, mark `verification_status = "verified"`.
+   - **overturned** → set `status = "rejected"`, `reviewer_notes = "Overturned in adversarial verification: <reasoning>"` — never reaches the comment letter.
+   - **modified** → keep finding, replace `finding`/`required_action` with corrected version, set `requires_human_review = true`.
 
-8. **Inline evidence preview**
-   - "Why?" already shows crops — add a one-click "Open in PDF" that jumps to the exact page+zoom. Removes the manual hunt.
+A small banner on the dashboard summarizes: "Verification pass: 47 upheld · 8 overturned · 3 modified."
 
----
+### C. Confidence-weighted ordering on the dashboard
 
-## Wave 3 — Catch AI errors before they reach the contractor
-
-9. **Confidence-based triage lane**
-   - Auto-bucket findings into **High confidence** (collapsed, pre-checked), **Needs review** (expanded), **Low confidence** (muted, requires explicit confirm to include in letter).
-   - Forces human eyes on uncertain items, reduces false-positives shipped to contractor.
-
-10. **Duplicate / conflict detection**
-    - Flag findings that cite the same FBC section + same sheet within 50px of each other → suggest merge.
-    - Flag findings that contradict resolved findings from prior rounds → "This was resolved in R1, still flagging?"
-
-11. **Side-by-side round diff**
-    - When viewing R2+, show a "What changed since R1?" panel: resolved, still-open, newly-found. Stops reviewers from re-flagging things the contractor already fixed.
-
-12. **Pre-send letter linter**
-    - Before "Send to Contractor": run checks for empty FBC sections, missing sheet refs, placeholder text (`[TODO]`, `XXX`), findings with no description. Show a blocking checklist.
-
----
-
-## Wave 4 — Ambient reliability
-
-13. **Activity timeline drawer**
-    - Right-side drawer showing every state change (uploads, AI runs, status changes, QC actions) with actor + timestamp. Pulled from `activity_log` + `finding_status_history`. Useful for "wait, who resolved that?".
-
-14. **Recover from AI failures gracefully**
-    - If a refine page fails, show it inline on its finding card with a "Retry this page" button instead of failing the whole batch.
-    - Persist `ai_run_progress` so a refresh mid-run doesn't restart from zero.
-
-15. **Empty/loading states that teach**
-    - Replace generic spinners with stage-specific skeletons ("Extracting sheets… 4/12", "Analyzing electrical scope…"). Reviewers stop wondering if it's stuck.
-
----
-
-## Suggested first ship (recommended)
-
-**Wave 1 + items 5, 6, 11** in one PR:
-- Autosave + unsaved-changes guard on the letter
-- Confirm dialogs for destructive actions
-- Upload validation + progress + cancel
-- `j/k/r/?` keyboard shortcuts with overlay
-- Pin ↔ card bi-directional highlight
-- R2+ "What changed since last round" diff panel
-
-Highest leverage on error prevention with minimal surface-area change.
-
----
+DeficiencyList already groups by priority. Add a sub-sort by `confidence_score DESC` so high-conviction items rise to the top of each bucket. Items with `requires_human_review = true` get a yellow left-border + "Needs human eyes" chip.
 
 ## Technical notes
 
-- Letter autosave needs a new `plan_reviews.comment_letter_draft text` column + a debounced mutation hook.
-- Keyboard shortcuts: a single `usePlanReviewHotkeys` hook in `PlanReviewDetail.tsx` listening on `document`, gated when an input is focused.
-- Pin↔card sync: lift `selectedFindingId` state to `PlanReviewDetail` and pass to both `PlanMarkupViewer` and `FindingCard`.
-- Round diff: compare current `ai_findings` against `previous_findings` (already stored) by `finding_id`; render as a collapsed banner above the findings list.
-- Pre-send linter: pure client-side validators in `src/lib/letter-linter.ts`; surfaces in a dialog before the existing Send action.
-- Confidence triage: read existing `confidence` field on findings, bucket in render layer only — no schema change.
+- **Schema**: add nullable column `deficiencies_v2.verification_status text` (`unverified | verified | overturned | modified`) and `verification_notes text`. No data migration needed — defaults to `unverified` for existing rows.
+- **Edge function**: add `stageVerify()` to `run-review-pipeline/index.ts`. Reuses `LOVABLE_API_KEY` and existing sheet-rendering helpers. Batches 5 findings per Gemini call to control latency. Total added pipeline time ≈ 30-90s for a typical review.
+- **PDF page jump**: `plan_review_files` stores the file path in storage. Sheet-map already records `page_index` per sheet — use it to build `?page=N` deep-links into a lightweight viewer route (`/plan-review/:id?file=...&page=N`) reusing `PlanMarkupViewer`.
+- **DeficiencyCard**: wrap evidence in shadcn `Collapsible` (already used in `DeferredScopePanel`) for consistent UX. Default open when `confidence_score < 0.7`, collapsed otherwise.
+- **County report** (`src/lib/county-report.ts`): suppress findings with `verification_status = "overturned"` and add a small footer line: "AI-verified findings only · X items overturned during internal verification."
+
+## What this changes for the user
+
+- False positives sent to contractors drop sharply (overturned items never enter the letter).
+- Reviewers stop hunting through PDFs to verify AI claims — evidence is right there.
+- High-confidence items get processed faster; low-confidence ones get explicit attention.
+- The county report becomes more defensible: every shipped finding survived a second AI pass.
+
+## Out of scope (next waves)
+
+- Admin prompt editor for the verification prompt (use a hardcoded prompt for now; we'll add `prompt_versions` integration later).
+- Per-finding "Open in PDF Viewer" with auto-zoom to coordinates (ships with file+page jump first; coordinate jump comes after we wire `grid_cell` into deficiencies_v2).
 
