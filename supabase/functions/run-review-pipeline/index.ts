@@ -1592,11 +1592,27 @@ async function stageCrossCheck(
     }
   }
 
+  // ---------- cross-sheet consistency (AI vision pass) ----------
+  let consistency_mismatches: ConsistencyMismatch[] = [];
+  try {
+    const raw = await runCrossSheetConsistency(admin, planReviewId);
+    consistency_mismatches = await persistConsistencyMismatches(
+      admin,
+      planReviewId,
+      firmId,
+      raw,
+    );
+  } catch (err) {
+    console.error("[cross_check] consistency pass failed:", err);
+  }
+
   return {
     duplicate_groups,
     duplicates_found: duplicate_groups.length,
     contradictions,
     contradictions_found: contradictions.length,
+    consistency_mismatches,
+    consistency_mismatches_found: consistency_mismatches.length,
   };
 }
 
