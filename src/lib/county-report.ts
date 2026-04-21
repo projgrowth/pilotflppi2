@@ -7,12 +7,10 @@ import type {
 } from "@/hooks/useReviewDashboard";
 import { DEFERRED_SCOPE_LABELS } from "@/hooks/useReviewDashboard";
 import type { FirmSettings } from "@/hooks/useFirmSettings";
+import type { ReviewStatus } from "@/lib/review-status";
 
-export type ReportStatus =
-  | "approved"
-  | "approved_with_conditions"
-  | "revise_resubmit"
-  | "incomplete";
+// Alias kept for backwards compatibility — the canonical type lives in review-status.
+export type ReportStatus = ReviewStatus;
 
 export interface ReportProject {
   name: string;

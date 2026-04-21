@@ -1,4 +1,4 @@
-import { useDeficienciesV2 } from "@/hooks/useReviewDashboard";
+import { useFilteredDeficiencies } from "@/hooks/useFilteredDeficiencies";
 import DeficiencyCard from "./DeficiencyCard";
 
 interface Props {
@@ -6,13 +6,16 @@ interface Props {
 }
 
 export default function HumanReviewQueue({ planReviewId }: Props) {
-  const { data: defs = [], isLoading } = useDeficienciesV2(planReviewId);
-  const queue = defs.filter((d) => d.requires_human_review);
+  const { isLoading, items } = useFilteredDeficiencies(planReviewId, {
+    hideOverturned: true,
+    onlyHumanReview: true,
+    groupBy: "none",
+  });
 
   if (isLoading) {
     return <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">Loading…</div>;
   }
-  if (queue.length === 0) {
+  if (items.length === 0) {
     return (
       <div className="rounded-lg border bg-card p-6 text-center text-sm text-muted-foreground">
         Nothing requires human review. ✅
@@ -23,9 +26,9 @@ export default function HumanReviewQueue({ planReviewId }: Props) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        {queue.length} item{queue.length > 1 ? "s" : ""} flagged for human review. The AI was uncertain — verify each manually before signing off.
+        {items.length} item{items.length > 1 ? "s" : ""} flagged for human review. The AI was uncertain — verify each manually before signing off.
       </p>
-      {queue.map((d) => (
+      {items.map((d) => (
         <DeficiencyCard key={d.id} planReviewId={planReviewId} def={d} showHumanReviewContext />
       ))}
     </div>

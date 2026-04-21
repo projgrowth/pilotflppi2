@@ -7,11 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import ReviewStatusBar from "@/components/review-dashboard/ReviewStatusBar";
-import ReviewSummaryHeader from "@/components/review-dashboard/ReviewSummaryHeader";
-import CrossCheckBanner from "@/components/review-dashboard/CrossCheckBanner";
-import VerificationBanner from "@/components/review-dashboard/VerificationBanner";
-import ReviewerMemoryCard from "@/components/review-dashboard/ReviewerMemoryCard";
+import ReviewHealthStrip from "@/components/review-dashboard/ReviewHealthStrip";
 import DeficiencyList from "@/components/review-dashboard/DeficiencyList";
 import HumanReviewQueue from "@/components/review-dashboard/HumanReviewQueue";
 import ProjectDNAViewer from "@/components/review-dashboard/ProjectDNAViewer";
@@ -20,6 +16,7 @@ import DeferredScopePanel from "@/components/review-dashboard/DeferredScopePanel
 import { useDeficienciesV2, useDeferredScope, useProjectDna, useSheetCoverage } from "@/hooks/useReviewDashboard";
 import { useFirmSettings } from "@/hooks/useFirmSettings";
 import { generateCountyReport } from "@/lib/county-report";
+import { determineReviewStatus } from "@/lib/review-status";
 
 interface ReviewWithProject {
   id: string;
@@ -82,7 +79,7 @@ export default function ReviewDashboard() {
   const { data: deferredItems = [] } = useDeferredScope(id);
   const { firmSettings } = useFirmSettings();
 
-  const status = useMemo(() => determineStatus(defs), [defs]);
+  const status = useMemo(() => determineReviewStatus(defs), [defs]);
   const jurisdictionMismatch =
     !!dna &&
     !!review?.project?.county &&
@@ -130,7 +127,6 @@ export default function ReviewDashboard() {
           }
         />
         <div className="flex items-center gap-2">
-          <StatusPill status={status} />
           <Button size="sm" onClick={runPipeline} disabled={running}>
             {running ? (
               <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -156,17 +152,10 @@ export default function ReviewDashboard() {
         </div>
       </div>
 
-      <ReviewStatusBar planReviewId={id} />
-
-      <VerificationBanner planReviewId={id} />
-
-      <ReviewerMemoryCard planReviewId={id} />
-
-      <CrossCheckBanner planReviewId={id} />
-
       {review?.project && (
-        <ReviewSummaryHeader
+        <ReviewHealthStrip
           planReviewId={id}
+          status={status}
           projectName={review.project.name}
           projectAddress={review.project.address}
           jurisdiction={review.project.jurisdiction || review.project.county}
@@ -203,66 +192,3 @@ export default function ReviewDashboard() {
   );
 }
 
-type ReviewStatus =
-  | "approved"
-  | "approved_with_conditions"
-  | "revise_resubmit"
-  | "incomplete";
-
-function determineStatus(
-  defs: { life_safety_flag: boolean; permit_blocker: boolean; priority: string; status: string; requires_human_review: boolean }[],
-): ReviewStatus {
-  const unresolvedHumanReview = defs.some(
-    (d) => d.requires_human_review && d.status === "open",
-  );
-  if (unresolvedHumanReview) return "incomplete";
-
-  const unresolvedHigh = defs.some(
-    (d) => d.priority === "high" && d.status !== "resolved" && d.status !== "waived",
-  );
-  if (unresolvedHigh) return "revise_resubmit";
-
-  const unresolvedBlocker = defs.some(
-    (d) =>
-      (d.life_safety_flag || d.permit_blocker) &&
-      d.status !== "resolved" &&
-      d.status !== "waived",
-  );
-  if (unresolvedBlocker) return "revise_resubmit";
-
-  const openMedium = defs.some(
-    (d) => d.priority === "medium" && d.status === "open",
-  );
-  if (openMedium) return "approved_with_conditions";
-
-  return "approved";
-}
-
-function StatusPill({ status }: { status: ReviewStatus }) {
-  const map: Record<ReviewStatus, { label: string; cls: string }> = {
-    approved: {
-      label: "Approved",
-      cls: "bg-emerald-500/10 text-emerald-700 border-emerald-500/30 dark:text-emerald-400",
-    },
-    approved_with_conditions: {
-      label: "Approved with Conditions",
-      cls: "bg-amber-500/10 text-amber-700 border-amber-500/30 dark:text-amber-400",
-    },
-    revise_resubmit: {
-      label: "Revise & Resubmit",
-      cls: "bg-destructive/10 text-destructive border-destructive/30",
-    },
-    incomplete: {
-      label: "Incomplete Review",
-      cls: "bg-muted text-foreground border-border",
-    },
-  };
-  const cfg = map[status];
-  return (
-    <span
-      className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium ${cfg.cls}`}
-    >
-      {cfg.label}
-    </span>
-  );
-}
