@@ -76,7 +76,8 @@ export default function CrossCheckBanner({ planReviewId }: Props) {
 
   const duplicates = meta.duplicate_groups ?? [];
   const contradictions = meta.contradictions ?? [];
-  const total = duplicates.length + contradictions.length;
+  const consistencyMismatches = meta.consistency_mismatches ?? [];
+  const total = duplicates.length + contradictions.length + consistencyMismatches.length;
 
   if (total === 0) return null;
 
