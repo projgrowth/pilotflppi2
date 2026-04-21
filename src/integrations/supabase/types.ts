@@ -226,6 +226,65 @@ export type Database = {
           },
         ]
       }
+      deferred_scope_items: {
+        Row: {
+          category: string
+          confidence_score: number | null
+          created_at: string
+          description: string
+          evidence: string[] | null
+          firm_id: string | null
+          id: string
+          plan_review_id: string
+          required_submittal: string | null
+          responsible_party: string | null
+          reviewer_notes: string | null
+          sheet_refs: string[] | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          confidence_score?: number | null
+          created_at?: string
+          description: string
+          evidence?: string[] | null
+          firm_id?: string | null
+          id?: string
+          plan_review_id: string
+          required_submittal?: string | null
+          responsible_party?: string | null
+          reviewer_notes?: string | null
+          sheet_refs?: string[] | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          confidence_score?: number | null
+          created_at?: string
+          description?: string
+          evidence?: string[] | null
+          firm_id?: string | null
+          id?: string
+          plan_review_id?: string
+          required_submittal?: string | null
+          responsible_party?: string | null
+          reviewer_notes?: string | null
+          sheet_refs?: string[] | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deferred_scope_items_plan_review_id_fkey"
+            columns: ["plan_review_id"]
+            isOneToOne: false
+            referencedRelation: "plan_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       deficiencies: {
         Row: {
           created_at: string | null
