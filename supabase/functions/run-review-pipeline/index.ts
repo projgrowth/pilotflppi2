@@ -721,11 +721,97 @@ async function stageDnaExtract(
 
   const { error } = await admin.from("project_dna").insert(row);
   if (error) throw error;
+
+  const health = evaluateDnaHealth(row, project?.projects?.county ?? null);
   return {
     extracted: true,
     pages_read: imageUrls.length,
     missing: row.missing_fields.length,
+    ...health,
   };
+}
+
+// Critical fields used to compute completeness. Wrong/missing here = wrong findings downstream.
+const CRITICAL_DNA_FIELDS = [
+  "occupancy_classification",
+  "construction_type",
+  "county",
+  "stories",
+  "total_sq_ft",
+  "fbc_edition",
+] as const;
+
+interface DnaHealth {
+  completeness: number;
+  critical_missing: string[];
+  jurisdiction_mismatch: boolean;
+  blocking: boolean;
+  block_reason: string | null;
+}
+
+function evaluateDnaHealth(
+  dna: Record<string, unknown>,
+  projectCounty: string | null,
+): DnaHealth {
+  const criticalMissing: string[] = [];
+  for (const f of CRITICAL_DNA_FIELDS) {
+    const v = dna[f];
+    if (v === null || v === undefined || v === "") criticalMissing.push(f);
+  }
+  const completeness =
+    (CRITICAL_DNA_FIELDS.length - criticalMissing.length) /
+    CRITICAL_DNA_FIELDS.length;
+
+  // Hard mismatch: extracted county doesn't match project county
+  // (wrong county => wrong code edition + HVHZ rules => every finding suspect).
+  const dnaCounty = (dna.county as string | null)?.toLowerCase().trim() || null;
+  const projCounty = projectCounty?.toLowerCase().trim() || null;
+  const jurisdictionMismatch =
+    !!dnaCounty && !!projCounty && dnaCounty !== projCounty;
+
+  let blocking = false;
+  let block_reason: string | null = null;
+  if (criticalMissing.includes("county")) {
+    blocking = true;
+    block_reason = "County missing from extracted DNA — cannot apply jurisdiction-specific code.";
+  } else if (jurisdictionMismatch) {
+    blocking = true;
+    block_reason = `Extracted county (${dna.county}) does not match project county (${projectCounty}) — wrong code edition would be applied.`;
+  } else if (completeness < 0.5) {
+    blocking = true;
+    block_reason = `Only ${Math.round(completeness * 100)}% of critical DNA fields populated — findings would be unreliable.`;
+  }
+
+  return {
+    completeness,
+    critical_missing: criticalMissing,
+    jurisdiction_mismatch: jurisdictionMismatch,
+    blocking,
+    block_reason,
+  };
+}
+
+/**
+ * Re-evaluate DNA health from the current row in project_dna (used after a
+ * reviewer manually patches missing fields and re-runs the pipeline from
+ * `verify` onwards). No vision call — pure DB read + score.
+ */
+async function stageDnaReevaluate(
+  admin: ReturnType<typeof createClient>,
+  planReviewId: string,
+) {
+  const { data: dna, error } = await admin
+    .from("project_dna")
+    .select("*, plan_reviews!inner(projects(county))")
+    .eq("plan_review_id", planReviewId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!dna) throw new Error("No project_dna row to re-evaluate");
+  const projectCounty =
+    ((dna as unknown as { plan_reviews?: { projects?: { county?: string } } })
+      .plan_reviews?.projects?.county) ?? null;
+  const health = evaluateDnaHealth(dna as Record<string, unknown>, projectCounty);
+  return { reevaluated: true, ...health };
 }
 
 async function stageDisciplineReview(
