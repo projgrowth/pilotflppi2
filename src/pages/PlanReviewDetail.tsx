@@ -982,7 +982,9 @@ export default function PlanReviewDetail() {
  trade_type: r.project?.trade_type,
  county: r.project?.county,
  jurisdiction: r.project?.jurisdiction,
- findings: r.ai_findings,
+  // V2 reviews: ai_findings is empty; send the adapted V2 findings instead so
+  // the generated letter reflects the verified, dedup'd source-of-truth set.
+  findings: r.pipeline_version === "v2" ? (v2Findings ?? []) : r.ai_findings,
  round: r.round,
  },
  onDelta: (chunk) => setCommentLetter((prev) => prev + chunk),
