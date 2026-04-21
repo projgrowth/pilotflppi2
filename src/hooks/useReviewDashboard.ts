@@ -185,3 +185,73 @@ export async function updateDeficiencyDisposition(
   const { error } = await supabase.from("deficiencies_v2").update(patch).eq("id", id);
   if (error) throw error;
 }
+
+export type DeferredScopeCategory =
+  | "fire_sprinkler"
+  | "fire_alarm"
+  | "pre_engineered_metal_building"
+  | "truss_shop_drawings"
+  | "elevators"
+  | "kitchen_hood"
+  | "stair_pressurization"
+  | "smoke_control"
+  | "curtain_wall"
+  | "storefront_glazing"
+  | "other";
+
+export interface DeferredScopeItem {
+  id: string;
+  plan_review_id: string;
+  category: DeferredScopeCategory;
+  description: string;
+  sheet_refs: string[];
+  evidence: string[];
+  required_submittal: string;
+  responsible_party: string;
+  confidence_score: number | null;
+  status: "pending" | "acknowledged" | "dismissed";
+  reviewer_notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const DEFERRED_SCOPE_LABELS: Record<DeferredScopeCategory, string> = {
+  fire_sprinkler: "Fire Sprinkler",
+  fire_alarm: "Fire Alarm",
+  pre_engineered_metal_building: "Pre-Engineered Metal Building",
+  truss_shop_drawings: "Truss Shop Drawings",
+  elevators: "Elevators",
+  kitchen_hood: "Kitchen Hood",
+  stair_pressurization: "Stair Pressurization",
+  smoke_control: "Smoke Control",
+  curtain_wall: "Curtain Wall",
+  storefront_glazing: "Storefront Glazing",
+  other: "Other",
+};
+
+export function useDeferredScope(planReviewId?: string) {
+  return useQuery({
+    queryKey: ["deferred_scope", planReviewId],
+    enabled: !!planReviewId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("deferred_scope_items")
+        .select("*")
+        .eq("plan_review_id", planReviewId!)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as unknown as DeferredScopeItem[];
+    },
+  });
+}
+
+export async function updateDeferredScopeItem(
+  id: string,
+  patch: Partial<Pick<DeferredScopeItem, "status" | "reviewer_notes">>,
+) {
+  const { error } = await supabase
+    .from("deferred_scope_items")
+    .update(patch)
+    .eq("id", id);
+  if (error) throw error;
+}

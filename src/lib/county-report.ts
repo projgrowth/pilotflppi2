@@ -1,9 +1,11 @@
 import { printViaIframe } from "@/lib/print-utils";
 import type {
+  DeferredScopeItem,
   DeficiencyV2Row,
   ProjectDnaRow,
   SheetCoverageRow,
 } from "@/hooks/useReviewDashboard";
+import { DEFERRED_SCOPE_LABELS } from "@/hooks/useReviewDashboard";
 import type { FirmSettings } from "@/hooks/useFirmSettings";
 
 export type ReportStatus =
@@ -26,6 +28,7 @@ export interface CountyReportInput {
   dna: ProjectDnaRow | null;
   sheets: SheetCoverageRow[];
   deficiencies: DeficiencyV2Row[];
+  deferredItems?: DeferredScopeItem[];
   observations?: string[];
   firm: Pick<FirmSettings, "firm_name" | "license_number" | "email" | "phone" | "address"> | null;
   reviewer?: { name?: string | null; license?: string | null };
@@ -242,6 +245,36 @@ function renderObservations(obs: string[]): string {
   return `<ul class="obs">${obs.map((o) => `<li>${esc(o)}</li>`).join("")}</ul>`;
 }
 
+function renderDeferredScope(items: DeferredScopeItem[]): string {
+  const visible = items.filter((i) => i.status !== "dismissed");
+  if (!visible.length) {
+    return `<p class="muted">No deferred-submittal items detected on the cover or general-notes sheets.</p>`;
+  }
+  const rows = visible.map((it) => {
+    const label = DEFERRED_SCOPE_LABELS[it.category] ?? it.category;
+    const sheets = it.sheet_refs.join(", ");
+    const conf = typeof it.confidence_score === "number"
+      ? `${Math.round(it.confidence_score * 100)}%`
+      : "—";
+    const evidence = it.evidence.filter(Boolean);
+    return `
+      <div class="def">
+        <div class="def-head">
+          <div class="def-title"><strong>${esc(label)}</strong>${sheets ? ` · <span class="mono">${esc(sheets)}</span>` : ""}</div>
+          <div class="def-flags"><span class="flag flag-pb">DEFERRED</span></div>
+        </div>
+        <div class="def-body">
+          <p class="def-finding">${esc(it.description)}</p>
+          ${it.required_submittal ? `<p class="def-action"><strong>Required Submittal:</strong> ${esc(it.required_submittal)}</p>` : ""}
+          ${it.responsible_party ? `<p class="def-code"><strong>Responsible:</strong> ${esc(it.responsible_party)}</p>` : ""}
+          ${evidence.length ? `<ul class="def-ev">${evidence.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
+          <div class="def-meta">Confidence ${esc(conf)} · Status: ${esc(it.status)}</div>
+        </div>
+      </div>`;
+  }).join("");
+  return rows;
+}
+
 function summarize(defs: DeficiencyV2Row[]) {
   let lifeSafety = 0;
   let permitBlocker = 0;
@@ -429,12 +462,17 @@ ${renderDnaTable(input.dna)}
 <p class="muted">Sorted by priority: Life Safety → Permit Blockers → Liability → Medium → Low.</p>
 ${renderDeficiencies(input.deficiencies)}
 
-<!-- ========== SECTION 5: OBSERVATIONS ========== -->
-<h2>5. General Observations</h2>
+<!-- ========== SECTION 5: DEFERRED SCOPE ITEMS ========== -->
+<h2>5. Deferred Scope Items</h2>
+<p class="muted">Items the plans defer to a separate submittal package. Must be submitted, reviewed, and permitted prior to installation.</p>
+${renderDeferredScope(input.deferredItems ?? [])}
+
+<!-- ========== SECTION 6: OBSERVATIONS ========== -->
+<h2>6. General Observations</h2>
 ${renderObservations(input.observations ?? [])}
 
-<!-- ========== SECTION 6: CERTIFICATION ========== -->
-<h2>6. Private Provider Certification</h2>
+<!-- ========== SECTION 7: CERTIFICATION ========== -->
+<h2>7. Private Provider Certification</h2>
 <div class="cert">
   <p>
     Pursuant to <strong>Florida Statute §553.791</strong>, the undersigned Private Provider

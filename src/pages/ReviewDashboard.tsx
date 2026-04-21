@@ -14,7 +14,8 @@ import DeficiencyList from "@/components/review-dashboard/DeficiencyList";
 import HumanReviewQueue from "@/components/review-dashboard/HumanReviewQueue";
 import ProjectDNAViewer from "@/components/review-dashboard/ProjectDNAViewer";
 import SheetCoverageMap from "@/components/review-dashboard/SheetCoverageMap";
-import { useDeficienciesV2, useProjectDna, useSheetCoverage } from "@/hooks/useReviewDashboard";
+import DeferredScopePanel from "@/components/review-dashboard/DeferredScopePanel";
+import { useDeficienciesV2, useDeferredScope, useProjectDna, useSheetCoverage } from "@/hooks/useReviewDashboard";
 import { useFirmSettings } from "@/hooks/useFirmSettings";
 import { generateCountyReport } from "@/lib/county-report";
 
@@ -76,6 +77,7 @@ export default function ReviewDashboard() {
   const { data: dna } = useProjectDna(id);
   const { data: defs = [] } = useDeficienciesV2(id);
   const { data: sheets = [] } = useSheetCoverage(id);
+  const { data: deferredItems = [] } = useDeferredScope(id);
   const { firmSettings } = useFirmSettings();
 
   const status = useMemo(() => determineStatus(defs), [defs]);
@@ -103,6 +105,7 @@ export default function ReviewDashboard() {
         dna: dna ?? null,
         sheets,
         deficiencies: defs,
+        deferredItems,
         firm: firmSettings ?? null,
       });
       toast.success("Report ready — choose Save as PDF in the print dialog");
@@ -168,6 +171,9 @@ export default function ReviewDashboard() {
         <TabsList>
           <TabsTrigger value="deficiencies">Deficiencies</TabsTrigger>
           <TabsTrigger value="human">Human Review</TabsTrigger>
+          <TabsTrigger value="deferred">
+            Deferred Scope{deferredItems.length > 0 ? ` (${deferredItems.length})` : ""}
+          </TabsTrigger>
           <TabsTrigger value="dna">Project DNA</TabsTrigger>
           <TabsTrigger value="coverage">Sheet Coverage</TabsTrigger>
         </TabsList>
@@ -176,6 +182,9 @@ export default function ReviewDashboard() {
         </TabsContent>
         <TabsContent value="human" className="mt-4">
           <HumanReviewQueue planReviewId={id} />
+        </TabsContent>
+        <TabsContent value="deferred" className="mt-4">
+          <DeferredScopePanel planReviewId={id} />
         </TabsContent>
         <TabsContent value="dna" className="mt-4">
           <ProjectDNAViewer planReviewId={id} jurisdictionMismatch={jurisdictionMismatch} />
