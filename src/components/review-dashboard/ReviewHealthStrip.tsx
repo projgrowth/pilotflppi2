@@ -5,6 +5,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   ChevronDown,
+  Layers,
 } from "lucide-react";
 import {
   Popover,
@@ -45,6 +46,13 @@ interface VerifyMetadata {
 interface CrossCheckMetadata {
   duplicate_groups?: unknown[];
   contradictions?: unknown[];
+}
+
+interface DedupeMetadata {
+  examined?: number;
+  groups_merged?: number;
+  findings_superseded?: number;
+  merges?: Array<{ winner: string; loser_count: number; reason: string }>;
 }
 
 export default function ReviewHealthStrip({
@@ -89,6 +97,12 @@ export default function ReviewHealthStrip({
       {}) as CrossCheckMetadata;
   }, [pipeRows]);
 
+  const dedupeMeta = useMemo(() => {
+    const row = pipeRows.find((r) => r.stage === "dedupe");
+    return ((row as unknown as { metadata?: DedupeMetadata } | undefined)?.metadata ??
+      {}) as DedupeMetadata;
+  }, [pipeRows]);
+
   const overturned = verifyMeta.overturned ?? 0;
   const upheld = verifyMeta.upheld ?? 0;
   const modified = verifyMeta.modified ?? 0;
@@ -97,9 +111,15 @@ export default function ReviewHealthStrip({
   const conflictCount =
     (crossMeta.duplicate_groups?.length ?? 0) +
     (crossMeta.contradictions?.length ?? 0);
+  const mergedGroups = dedupeMeta.groups_merged ?? 0;
+  const supersededCount = dedupeMeta.findings_superseded ?? 0;
 
-  // Live deficiency totals
-  const liveDefs = defs.filter((d) => d.verification_status !== "overturned");
+  // Live deficiency totals (exclude overturned + superseded duplicates)
+  const liveDefs = defs.filter(
+    (d) =>
+      d.verification_status !== "overturned" &&
+      d.verification_status !== "superseded",
+  );
   const humanReview = liveDefs.filter(
     (d) => d.requires_human_review && d.status === "open",
   ).length;
