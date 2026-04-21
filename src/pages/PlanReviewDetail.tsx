@@ -935,6 +935,10 @@ export default function PlanReviewDetail() {
 
  const createNewRound = async () => {
  if (!review || !allRounds) return;
+ if (review.pipeline_version === "v2") {
+  toast.error("New rounds for V2 reviews must be created from the V2 dashboard so deficiencies_v2 carries forward correctly.");
+  return;
+ }
  try {
  const maxRound = allRounds.reduce((max, r) => Math.max(max, r.round), 0);
  const { data: newReview, error } = await supabase
@@ -1240,21 +1244,25 @@ export default function PlanReviewDetail() {
   onNewRound={createNewRound}
  />
 
- {/* ── V2 pipeline banner: source-of-truth lives in deficiencies_v2 ── */}
- {(review as { pipeline_version?: string }).pipeline_version === "v2" && (
-  <div className="shrink-0 border-b border-primary/20 bg-primary/5 px-4 py-2 flex items-center justify-between gap-3">
-   <div className="flex items-center gap-2 min-w-0">
-    <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-    <span className="text-2xs font-semibold uppercase tracking-wide text-primary">V2 Pipeline</span>
-    <span className="text-xs text-muted-foreground truncate">
-     Findings live in the V2 dashboard (verification, cross-check, deferred scope, human-review queue).
-    </span>
+  {/* ── V2 pipeline banner: viewer renders adapted V2 findings; mutating actions
+       (Run AI Check, New Round, pin reposition) are gated and routed to the
+       V2 dashboard so we never split the source of truth. ── */}
+  {isV2Pipeline && (
+   <div className="shrink-0 border-b border-primary/20 bg-primary/5 px-4 py-2 flex items-center justify-between gap-3">
+    <div className="flex items-center gap-2 min-w-0">
+     <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+     <span className="text-2xs font-semibold uppercase tracking-wide text-primary">V2 Pipeline</span>
+     <span className="text-xs text-muted-foreground truncate">
+      {v2Findings === undefined
+       ? "Loading verified findings from the V2 pipeline…"
+       : `${v2Findings.length} verified finding${v2Findings.length === 1 ? "" : "s"} loaded. Run pipeline, dispositions, and deferred scope live on the dashboard.`}
+     </span>
+    </div>
+    <Button size="sm" variant="default" onClick={() => navigate(`/plan-review/${review.id}/dashboard`)} className="shrink-0 h-7 text-xs">
+     Open V2 Dashboard
+    </Button>
    </div>
-   <Button size="sm" variant="default" onClick={() => navigate(`/plan-review/${review.id}/dashboard`)} className="shrink-0 h-7 text-xs">
-    Open V2 Dashboard
-   </Button>
-  </div>
- )}
+  )}
 
  {/* ── Resume banner: another tab is mid-run on this review ── */}
  {resumingFromOtherTab && !aiRunning && (
