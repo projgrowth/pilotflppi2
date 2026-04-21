@@ -47,6 +47,7 @@ import {
  getDisciplineLabel, DISCIPLINE_ORDER, SCANNING_STEPS,
 } from "@/lib/county-utils";
 import type { PlanReviewRow } from "@/types";
+import { adaptV2ToFindings, type DeficiencyV2Lite } from "@/lib/deficiency-adapter";
 
 type RightPanelMode = "findings" | "checklist" | "completeness" | "letter" | "county";
 
