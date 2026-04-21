@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useFilteredDeficiencies } from "@/hooks/useFilteredDeficiencies";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -8,8 +8,21 @@ interface Props {
   planReviewId: string;
 }
 
+/** Fired by the dedupe audit trail when jumping to a superseded loser. */
+const FORCE_SHOW_EVENT = "fpp:show-superseded";
+export function requestShowSuperseded() {
+  window.dispatchEvent(new CustomEvent(FORCE_SHOW_EVENT));
+}
+
 export default function DeficiencyList({ planReviewId }: Props) {
   const [showSuperseded, setShowSuperseded] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setShowSuperseded(true);
+    window.addEventListener(FORCE_SHOW_EVENT, handler);
+    return () => window.removeEventListener(FORCE_SHOW_EVENT, handler);
+  }, []);
+
   const { isLoading, grouped, counts } = useFilteredDeficiencies(planReviewId, {
     hideOverturned: true,
     showSuperseded,

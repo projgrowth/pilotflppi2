@@ -8,6 +8,7 @@ import {
   type DeficiencyV2Row,
 } from "@/hooks/useReviewDashboard";
 import { scrollToFinding } from "@/lib/finding-jump";
+import { requestShowSuperseded } from "./DeficiencyList";
 
 interface MergeEntry {
   winner: string;
