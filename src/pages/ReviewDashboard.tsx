@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Play, Loader2, FileDown } from "lucide-react";
+import { ArrowLeft, Play, Loader2, FileDown, Layers } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/PageHeader";
@@ -13,7 +13,8 @@ import HumanReviewQueue from "@/components/review-dashboard/HumanReviewQueue";
 import ProjectDNAViewer from "@/components/review-dashboard/ProjectDNAViewer";
 import SheetCoverageMap from "@/components/review-dashboard/SheetCoverageMap";
 import DeferredScopePanel from "@/components/review-dashboard/DeferredScopePanel";
-import { useDeficienciesV2, useDeferredScope, useProjectDna, useSheetCoverage } from "@/hooks/useReviewDashboard";
+import DedupeAuditTrail from "@/components/review-dashboard/DedupeAuditTrail";
+import { useDeficienciesV2, useDeferredScope, useProjectDna, useSheetCoverage, usePipelineStatus } from "@/hooks/useReviewDashboard";
 import { useFirmSettings } from "@/hooks/useFirmSettings";
 import { generateCountyReport } from "@/lib/county-report";
 import { determineReviewStatus } from "@/lib/review-status";
@@ -35,6 +36,7 @@ export default function ReviewDashboard() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [running, setRunning] = useState(false);
+  const [activeTab, setActiveTab] = useState("deficiencies");
 
   const runPipeline = async () => {
     if (!id) return;
@@ -77,7 +79,15 @@ export default function ReviewDashboard() {
   const { data: defs = [] } = useDeficienciesV2(id);
   const { data: sheets = [] } = useSheetCoverage(id);
   const { data: deferredItems = [] } = useDeferredScope(id);
+  const { data: pipeRows = [] } = usePipelineStatus(id);
   const { firmSettings } = useFirmSettings();
+
+  const dedupeMergeCount = useMemo(() => {
+    const row = pipeRows.find((r) => r.stage === "dedupe");
+    const meta = (row as unknown as { metadata?: { groups_merged?: number } } | undefined)
+      ?.metadata;
+    return meta?.groups_merged ?? 0;
+  }, [pipeRows]);
 
   const status = useMemo(() => determineReviewStatus(defs), [defs]);
   const jurisdictionMismatch =
@@ -162,12 +172,16 @@ export default function ReviewDashboard() {
         />
       )}
 
-      <Tabs defaultValue="deficiencies" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
           <TabsTrigger value="deficiencies">Deficiencies</TabsTrigger>
           <TabsTrigger value="human">Human Review</TabsTrigger>
           <TabsTrigger value="deferred">
             Deferred Scope{deferredItems.length > 0 ? ` (${deferredItems.length})` : ""}
+          </TabsTrigger>
+          <TabsTrigger value="audit">
+            <Layers className="mr-1 h-3.5 w-3.5" />
+            Dedupe Audit{dedupeMergeCount > 0 ? ` (${dedupeMergeCount})` : ""}
           </TabsTrigger>
           <TabsTrigger value="dna">Project DNA</TabsTrigger>
           <TabsTrigger value="coverage">Sheet Coverage</TabsTrigger>
@@ -180,6 +194,12 @@ export default function ReviewDashboard() {
         </TabsContent>
         <TabsContent value="deferred" className="mt-4">
           <DeferredScopePanel planReviewId={id} />
+        </TabsContent>
+        <TabsContent value="audit" className="mt-4">
+          <DedupeAuditTrail
+            planReviewId={id}
+            onJump={() => setActiveTab("deficiencies")}
+          />
         </TabsContent>
         <TabsContent value="dna" className="mt-4">
           <ProjectDNAViewer planReviewId={id} jurisdictionMismatch={jurisdictionMismatch} />
