@@ -19,6 +19,7 @@ type Stage =
   | "dna_extract"
   | "discipline_review"
   | "verify"
+  | "dedupe"
   | "cross_check"
   | "deferred_scope"
   | "prioritize"
@@ -30,6 +31,7 @@ const STAGES: Stage[] = [
   "dna_extract",
   "discipline_review",
   "verify",
+  "dedupe",
   "cross_check",
   "deferred_scope",
   "prioritize",
