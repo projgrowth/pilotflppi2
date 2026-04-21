@@ -263,6 +263,8 @@ export default function PlanReviewDetail() {
 
  // Auto-trigger AI check for newly created pending reviews — but only if no
  // other tab is mid-run on this review. The resume effect below detects that.
+ // V2 reviews own their own pipeline (via "Run Pipeline" on the dashboard), so
+ // we never auto-trigger the legacy v1 runner against them.
  const hasAutoTriggered = useRef(false);
  useEffect(() => {
  if (
@@ -271,7 +273,8 @@ export default function PlanReviewDetail() {
  review.file_urls?.length > 0 &&
  !aiRunning &&
  !hasAutoTriggered.current &&
- !resumingFromOtherTab
+ !resumingFromOtherTab &&
+ review.pipeline_version !== "v2"
  ) {
  hasAutoTriggered.current = true;
  runAICheck(review);
