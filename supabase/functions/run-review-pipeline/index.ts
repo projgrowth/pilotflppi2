@@ -48,7 +48,32 @@ const DISCIPLINES = [
   "Accessibility",
   "Product Approvals",
   "MEP",
+  "Life Safety",
+  "Civil",
+  "Landscape",
 ];
+
+/**
+ * Map AI-extracted sheet_coverage.discipline → our internal DISCIPLINES list.
+ * The sheet_map stage uses an enum {General, Architectural, Structural, MEP,
+ * Energy, Accessibility, Civil, Landscape, Other}. We don't have a 1:1 for
+ * "Product Approvals" (that's a doc category, not a sheet) and "Life Safety"
+ * is sometimes labeled Architectural. This normalizer keeps routing honest.
+ */
+function normalizeAIDiscipline(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const k = raw.trim().toLowerCase();
+  if (k === "general" || k === "other") return null;
+  if (k === "architectural" || k === "arch") return "Architectural";
+  if (k === "structural" || k === "struct") return "Structural";
+  if (k === "mep" || k === "mechanical" || k === "electrical" || k === "plumbing" || k === "fire protection" || k === "fp") return "MEP";
+  if (k === "energy") return "Energy";
+  if (k === "accessibility" || k === "ada") return "Accessibility";
+  if (k === "civil" || k === "site") return "Civil";
+  if (k === "landscape" || k === "irrigation") return "Landscape";
+  if (k === "life safety" || k === "ls") return "Life Safety";
+  return null;
+}
 
 // ---------- helpers ----------
 
@@ -189,6 +214,36 @@ function disciplineForSheet(sheetRef: string): string | null {
   }
 }
 
+/**
+ * @deprecated Prefer `sheet_coverage.discipline` (AI-extracted from the title block).
+ * This prefix heuristic is kept ONLY as a last-resort fallback when sheet_map
+ * fails or returns "General"/"Other" for a sheet that clearly belongs elsewhere.
+ *
+ * Why deprecated: prefix routing miscategorizes Life Safety (LS), Fire Protection
+ * (FP), Civil (C), Landscape (L), and detail sheets like AS-101 (assigned to the
+ * wrong discipline). The AI can read the title block and gets these right.
+ */
+function disciplineForSheetFallback(sheetRef: string): string | null {
+  const p = sheetRef.trim().toUpperCase()[0];
+  switch (p) {
+    case "A":
+      return "Architectural";
+    case "S":
+      return "Structural";
+    case "M":
+    case "P":
+    case "E":
+    case "F":
+      return "MEP";
+    case "C":
+      return "Civil";
+    case "L":
+      return "Landscape";
+    default:
+      return null; // G-, T-, cover sheets → general notes, sent to every call
+  }
+}
+
 /** Sign each plan file (PDFs/images in `documents` bucket) for vision input. */
 async function signedSheetUrls(
   admin: ReturnType<typeof createClient>,
@@ -204,7 +259,7 @@ async function signedSheetUrls(
   for (const f of (files ?? []) as Array<{ file_path: string }>) {
     const { data: signed, error: sErr } = await admin.storage
       .from("documents")
-      .createSignedUrl(f.file_path, 60 * 30);
+      .createSignedUrl(f.file_path, 60 * 60); // 60min — long enough for slowest discipline run
     if (sErr || !signed) continue;
     out.push({ file_path: f.file_path, signed_url: signed.signedUrl });
   }
@@ -332,6 +387,8 @@ const SHEET_MAP_SCHEMA = {
                 "Accessibility",
                 "Civil",
                 "Landscape",
+                "Life Safety",
+                "Fire Protection",
                 "Other",
               ],
             },
@@ -715,10 +772,28 @@ async function stageDisciplineReview(
     jurisdiction = (jr ?? null) as Record<string, unknown> | null;
   }
 
-  // Smart chunking — first 2 "general notes" pages (G-/T-/cover) seed every call.
-  const generalSheets = allSheets
-    .filter((s) => disciplineForSheet(s.sheet_ref) === null)
-    .slice(0, 2);
+  // Resolve each sheet's discipline: prefer the AI-extracted title-block
+  // discipline (sheet_coverage.discipline). Fall back to prefix heuristic ONLY
+  // for sheets the AI labelled General/Other but whose prefix is unambiguous.
+  type RoutedSheet = {
+    sheet_ref: string;
+    sheet_title: string | null;
+    page_index: number | null;
+    discipline: string | null; // resolved discipline (one of DISCIPLINES) or null = general
+  };
+  const routed: RoutedSheet[] = allSheets.map((s) => {
+    const aiResolved = normalizeAIDiscipline(s.discipline);
+    const fallback = aiResolved === null ? disciplineForSheetFallback(s.sheet_ref) : null;
+    return {
+      sheet_ref: s.sheet_ref,
+      sheet_title: s.sheet_title,
+      page_index: s.page_index,
+      discipline: aiResolved ?? fallback,
+    };
+  });
+
+  // Smart chunking — first 2 "general notes" pages (cover/title/code summary) seed every call.
+  const generalSheets = routed.filter((s) => s.discipline === null).slice(0, 2);
   const generalImageUrls = generalSheets
     .map((s) => signedUrls[s.page_index ?? -1]?.signed_url)
     .filter(Boolean) as string[];
@@ -728,9 +803,7 @@ async function stageDisciplineReview(
 
   for (const discipline of DISCIPLINES) {
     try {
-      const disciplineSheets = allSheets.filter(
-        (s) => disciplineForSheet(s.sheet_ref) === discipline,
-      );
+      const disciplineSheets = routed.filter((s) => s.discipline === discipline);
       const disciplineImageUrls = disciplineSheets
         .map((s) => signedUrls[s.page_index ?? -1]?.signed_url)
         .filter(Boolean) as string[];
@@ -746,7 +819,7 @@ async function stageDisciplineReview(
           required_action: `Confirm whether ${discipline} scope applies; if so, request the missing sheets.`,
           priority: "medium",
           requires_human_review: true,
-          human_review_reason: "No sheets routed to this discipline by sheet-prefix mapping.",
+          human_review_reason: "No sheets routed to this discipline (AI title-block + prefix fallback both empty).",
           human_review_method: "Reviewer: confirm scope and request missing sheets if applicable.",
           confidence_score: 0.3,
           confidence_basis: "Sheet routing produced no inputs for this discipline.",
@@ -1393,7 +1466,11 @@ async function stageComplete(
 ) {
   await admin
     .from("plan_reviews")
-    .update({ ai_check_status: "complete", updated_at: new Date().toISOString() })
+    .update({
+      ai_check_status: "complete",
+      pipeline_version: "v2",
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", planReviewId);
   return { ok: true };
 }
@@ -1403,7 +1480,7 @@ async function stageComplete(
 const VERIFY_SCHEMA = {
   name: "submit_verifications",
   description:
-    "For each finding supplied, return a verdict from a senior plans examiner challenging the original examiner's conclusion.",
+    "For each finding supplied, return a verdict from a senior plans examiner challenging the original examiner's conclusion. Use 'cannot_locate' if the cited element/area on the cited sheet is not visible to you in the supplied images — never auto-overturn for that reason; route to human review instead.",
   parameters: {
     type: "object",
     properties: {
@@ -1415,12 +1492,12 @@ const VERIFY_SCHEMA = {
             deficiency_id: { type: "string" },
             verdict: {
               type: "string",
-              enum: ["upheld", "overturned", "modified"],
+              enum: ["upheld", "overturned", "modified", "cannot_locate"],
             },
             reasoning: {
               type: "string",
               description:
-                "Why upheld/overturned/modified. Cite what the original examiner missed or got wrong.",
+                "Why upheld/overturned/modified/cannot_locate. For 'cannot_locate' explain what you searched for and where you couldn't find it.",
             },
             corrected_finding: {
               type: "string",
@@ -1451,6 +1528,7 @@ interface VerifyTarget {
   sheet_refs: string[];
   code_reference: { code?: string; section?: string; edition?: string } | null;
   confidence_score: number | null;
+  confidence_basis: string | null;
   priority: string;
   page_indices: number[];
 }
@@ -1463,7 +1541,7 @@ async function stageVerify(
   const { data: defsRaw, error } = await admin
     .from("deficiencies_v2")
     .select(
-      "id, def_number, discipline, finding, required_action, evidence, sheet_refs, code_reference, confidence_score, priority, life_safety_flag, permit_blocker, status, verification_status",
+      "id, def_number, discipline, finding, required_action, evidence, sheet_refs, code_reference, confidence_score, confidence_basis, priority, life_safety_flag, permit_blocker, status, verification_status",
     )
     .eq("plan_review_id", planReviewId)
     .neq("status", "resolved")
@@ -1481,6 +1559,7 @@ async function stageVerify(
     sheet_refs: string[] | null;
     code_reference: { code?: string; section?: string; edition?: string } | null;
     confidence_score: number | null;
+    confidence_basis: string | null;
     priority: string;
     life_safety_flag: boolean;
     permit_blocker: boolean;
@@ -1492,7 +1571,7 @@ async function stageVerify(
   });
 
   if (candidates.length === 0) {
-    return { upheld: 0, overturned: 0, modified: 0, examined: 0, skipped: 0 };
+    return { upheld: 0, overturned: 0, modified: 0, cannot_locate: 0, examined: 0, skipped: 0 };
   }
 
   // Map sheet_refs → page_index so we can attach the right images per finding.
@@ -1522,6 +1601,7 @@ async function stageVerify(
     sheet_refs: d.sheet_refs ?? [],
     code_reference: d.code_reference,
     confidence_score: d.confidence_score,
+    confidence_basis: d.confidence_basis,
     priority: d.priority,
     page_indices: Array.from(
       new Set(
@@ -1533,18 +1613,23 @@ async function stageVerify(
   }));
 
   const VERIFY_SYSTEM =
-    "You are a senior Florida plans examiner reviewing another examiner's work. " +
-    "Your job is to find reasons each finding might be WRONG. Look at the cited evidence and sheet images. " +
-    "Did the prior examiner misread the plan? Is the cited code section correct? Is the item actually shown elsewhere on the sheet that they missed? " +
+    "You are a senior Florida plans examiner adversarially auditing another examiner's findings. " +
+    "For each finding, you receive: the finding text, the cited code reference, the verbatim evidence the original examiner read off the sheet, their confidence basis, and the actual cited sheet image(s). " +
+    "Your job is to find reasons the finding might be WRONG — but you MUST distinguish between two failure modes:\n" +
+    "  (a) The finding is demonstrably incorrect — the plans clearly comply, the cited code does not apply, or the cited evidence is misquoted/out of context. → 'overturned'.\n" +
+    "  (b) You cannot locate the cited element/area on the supplied sheets, or the resolution/crop is insufficient to verify. → 'cannot_locate'. NEVER overturn for that reason.\n" +
     "Return verdicts via submit_verifications:\n" +
-    "- 'upheld' — the finding is valid as written.\n" +
-    "- 'overturned' — the finding is wrong; the plans actually comply or the cited code does not apply. Explain.\n" +
-    "- 'modified' — the finding is partially right but needs correction; provide corrected_finding and corrected_required_action.";
+    "- 'upheld' — finding is valid as written; cite the visible evidence that supports it.\n" +
+    "- 'overturned' — finding is provably wrong; cite the conflicting visible evidence.\n" +
+    "- 'modified' — finding is partially right but mis-stated; provide corrected_finding + corrected_required_action.\n" +
+    "- 'cannot_locate' — you cannot verify either way from the supplied images. Will be routed to human review.\n" +
+    "Be strict: 'overturned' requires positive evidence the finding is wrong, not absence of evidence.";
 
   const BATCH = 5;
   let upheld = 0;
   let overturned = 0;
   let modified = 0;
+  let cannotLocate = 0;
   let skipped = 0;
 
   for (let start = 0; start < targets.length; start += BATCH) {
@@ -1573,7 +1658,8 @@ async function stageVerify(
           `code_reference: ${code}\n` +
           `finding: ${t.finding}\n` +
           `required_action: ${t.required_action}\n` +
-          `evidence: ${t.evidence.length ? t.evidence.map((e) => `"${e}"`).join(" | ") : "(none cited)"}`
+          `original_examiner_evidence: ${t.evidence.length ? t.evidence.map((e) => `"${e}"`).join(" | ") : "(NONE — examiner had no quoted evidence; treat with extra skepticism)"}\n` +
+          `original_confidence_basis: ${t.confidence_basis ?? "(not provided)"}`
         );
       })
       .join("\n\n");
@@ -1581,9 +1667,10 @@ async function stageVerify(
     const userText =
       `Audit the following ${slice.length} finding${slice.length === 1 ? "" : "s"}. ` +
       `For EACH deficiency_id, return one entry in submit_verifications. ` +
-      `Be skeptical — the goal is to filter out false positives.\n\n` +
+      `When you cannot find the cited element on the supplied sheet images, return 'cannot_locate' — do NOT overturn.\n\n` +
       `${findingsText}\n\n` +
-      `The attached images are the cited sheets (in order).`;
+      `The attached images are the cited sheets (in the order listed above). ` +
+      `Each sheet has a 10×10 grid overlay (cells A0..J9) you can use to describe locations.`;
 
     const content: Array<
       | { type: "text"; text: string }
@@ -1599,7 +1686,7 @@ async function stageVerify(
     let result: {
       verifications: Array<{
         deficiency_id: string;
-        verdict: "upheld" | "overturned" | "modified";
+        verdict: "upheld" | "overturned" | "modified" | "cannot_locate";
         reasoning: string;
         corrected_finding?: string;
         corrected_required_action?: string;
@@ -1653,6 +1740,25 @@ async function stageVerify(
         }
         await admin.from("deficiencies_v2").update(patch).eq("id", target.id);
         modified++;
+      } else if (v.verdict === "cannot_locate") {
+        // Verifier could not find the cited element on the supplied images.
+        // Don't overturn — route to a human with full context so they can
+        // either confirm with the original sheet, request a clearer crop,
+        // or reject manually.
+        await admin
+          .from("deficiencies_v2")
+          .update({
+            verification_status: "needs_human",
+            verification_notes: reasoning,
+            requires_human_review: true,
+            human_review_reason:
+              "Senior verifier could not locate the cited element on the supplied sheet images.",
+            human_review_method:
+              "Open the cited sheet at full resolution and confirm presence/absence of the element described.",
+            human_review_verify: reasoning.slice(0, 500),
+          })
+          .eq("id", target.id);
+        cannotLocate++;
       } else {
         const newConf = Math.max(
           0,
@@ -1676,6 +1782,7 @@ async function stageVerify(
     upheld,
     overturned,
     modified,
+    cannot_locate: cannotLocate,
     skipped,
   };
 }
