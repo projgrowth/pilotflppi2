@@ -300,6 +300,56 @@ async function stageUpload(
   return { file_count: data.length };
 }
 
+const SHEET_MAP_SCHEMA = {
+  name: "submit_sheet_map",
+  description:
+    "Return one entry per supplied page. Read the actual title block. If a page has no recognizable sheet number (e.g. response letter, calc cover), set sheet_ref to 'X-NA' and discipline to 'General'.",
+  parameters: {
+    type: "object",
+    properties: {
+      sheets: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            page_index: { type: "integer", minimum: 0 },
+            sheet_ref: {
+              type: "string",
+              description:
+                "Sheet identifier exactly as printed in the title block (e.g. A-101, S2.01, M-001).",
+            },
+            sheet_title: { type: "string" },
+            discipline: {
+              type: "string",
+              enum: [
+                "General",
+                "Architectural",
+                "Structural",
+                "MEP",
+                "Energy",
+                "Accessibility",
+                "Civil",
+                "Landscape",
+                "Other",
+              ],
+            },
+          },
+          required: ["page_index", "sheet_ref", "discipline"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["sheets"],
+    additionalProperties: false,
+  },
+} as const;
+
+const EXPECTED_SHEETS_BY_DISCIPLINE: Record<string, string[]> = {
+  Architectural: ["A-001", "A-101", "A-201"],
+  Structural: ["S-001", "S-101"],
+  MEP: ["M-101", "E-101", "P-101"],
+};
+
 async function stageSheetMap(
   admin: ReturnType<typeof createClient>,
   planReviewId: string,
@@ -312,35 +362,151 @@ async function stageSheetMap(
     .eq("plan_review_id", planReviewId);
   if ((count ?? 0) > 0) return { sheets: count };
 
-  // Seed an expected-sheet baseline so the SheetCoverageMap shows something
-  // useful even before vision extraction runs. The discipline_review stage
-  // (next PR) will mark these present/missing based on actual extraction.
-  const baseline = [
-    { sheet_ref: "G-001", sheet_title: "Cover / Code Summary", discipline: "General" },
-    { sheet_ref: "A-001", sheet_title: "Site Plan", discipline: "Architectural" },
-    { sheet_ref: "A-101", sheet_title: "Floor Plan", discipline: "Architectural" },
-    { sheet_ref: "A-201", sheet_title: "Elevations", discipline: "Architectural" },
-    { sheet_ref: "S-001", sheet_title: "Structural Notes", discipline: "Structural" },
-    { sheet_ref: "S-101", sheet_title: "Foundation Plan", discipline: "Structural" },
-    { sheet_ref: "M-101", sheet_title: "Mechanical Plan", discipline: "MEP" },
-    { sheet_ref: "E-101", sheet_title: "Electrical Plan", discipline: "MEP" },
-    { sheet_ref: "P-101", sheet_title: "Plumbing Plan", discipline: "MEP" },
-  ];
+  const signed = await signedSheetUrls(admin, planReviewId);
+  if (signed.length === 0) throw new Error("No signed file URLs available");
 
-  const rows = baseline.map((b, i) => ({
+  // Vision-extract the actual title block from each page in batches of 8.
+  const present: Array<{
+    page_index: number;
+    sheet_ref: string;
+    sheet_title: string | null;
+    discipline: string;
+  }> = [];
+
+  const BATCH = 8;
+  for (let start = 0; start < signed.length; start += BATCH) {
+    const slice = signed.slice(start, start + BATCH);
+    const userText =
+      `Identify each page's title block. The pages are supplied in order. ` +
+      `page_index values for this batch must be ${start}..${start + slice.length - 1}. ` +
+      `Return one entry per page via submit_sheet_map.`;
+    const content: Array<
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } }
+    > = [
+      { type: "text", text: userText },
+      ...slice.map((s) => ({
+        type: "image_url" as const,
+        image_url: { url: s.signed_url },
+      })),
+    ];
+
+    try {
+      const result = (await callAI(
+        [
+          {
+            role: "system",
+            content:
+              "You are a Florida plan reviewer indexing a construction document set. Read each page's title block exactly. Never invent sheet numbers.",
+          },
+          { role: "user", content },
+        ],
+        SHEET_MAP_SCHEMA as unknown as Record<string, unknown>,
+        "google/gemini-2.5-flash",
+      )) as {
+        sheets: Array<{
+          page_index: number;
+          sheet_ref: string;
+          sheet_title?: string;
+          discipline: string;
+        }>;
+      };
+      for (const s of result?.sheets ?? []) {
+        present.push({
+          page_index: s.page_index,
+          sheet_ref: (s.sheet_ref || `X-${s.page_index}`).toUpperCase().slice(0, 32),
+          sheet_title: s.sheet_title?.slice(0, 200) ?? null,
+          discipline: s.discipline ?? "General",
+        });
+      }
+    } catch (err) {
+      console.error(`[sheet_map] batch ${start} failed:`, err);
+      // Fall back to a placeholder entry for each page in this batch
+      for (let i = 0; i < slice.length; i++) {
+        present.push({
+          page_index: start + i,
+          sheet_ref: `X-${start + i}`,
+          sheet_title: null,
+          discipline: "General",
+        });
+      }
+    }
+  }
+
+  const presentRows = present.map((p) => ({
     plan_review_id: planReviewId,
     firm_id: firmId,
-    sheet_ref: b.sheet_ref,
-    sheet_title: b.sheet_title,
-    discipline: b.discipline,
+    sheet_ref: p.sheet_ref,
+    sheet_title: p.sheet_title,
+    discipline: p.discipline,
     expected: true,
-    status: "missing_minor", // until extraction confirms presence
-    page_index: i,
+    status: "present",
+    page_index: p.page_index,
   }));
-  const { error } = await admin.from("sheet_coverage").insert(rows);
+
+  // Compute missing-critical sheets per discipline (heuristic baseline).
+  const presentRefs = new Set(present.map((p) => p.sheet_ref));
+  const missingRows: typeof presentRows = [];
+  for (const [discipline, expected] of Object.entries(EXPECTED_SHEETS_BY_DISCIPLINE)) {
+    for (const ref of expected) {
+      if (!presentRefs.has(ref)) {
+        missingRows.push({
+          plan_review_id: planReviewId,
+          firm_id: firmId,
+          sheet_ref: ref,
+          sheet_title: null,
+          discipline,
+          expected: true,
+          status: "missing_critical",
+          page_index: null,
+        });
+      }
+    }
+  }
+
+  const allRows = [...presentRows, ...missingRows];
+  if (allRows.length === 0) return { sheets: 0 };
+  const { error } = await admin.from("sheet_coverage").insert(allRows);
   if (error) throw error;
-  return { sheets: rows.length };
+  return {
+    sheets: allRows.length,
+    present: presentRows.length,
+    missing_critical: missingRows.length,
+  };
 }
+
+const DNA_SCHEMA = {
+  name: "submit_project_dna",
+  description:
+    "Extract Florida Building Code project DNA from cover/code-summary sheets. Read values verbatim. Use null when not directly readable; list those keys in missing_fields. List keys with conflicting values across sheets in ambiguous_fields.",
+  parameters: {
+    type: "object",
+    properties: {
+      occupancy_classification: { type: ["string", "null"] },
+      construction_type: { type: ["string", "null"] },
+      total_sq_ft: { type: ["number", "null"] },
+      stories: { type: ["integer", "null"] },
+      fbc_edition: { type: ["string", "null"] },
+      wind_speed_vult: { type: ["integer", "null"] },
+      exposure_category: { type: ["string", "null"] },
+      risk_category: { type: ["string", "null"] },
+      flood_zone: { type: ["string", "null"] },
+      hvhz: { type: ["boolean", "null"] },
+      mixed_occupancy: { type: ["boolean", "null"] },
+      is_high_rise: { type: ["boolean", "null"] },
+      has_mezzanine: { type: ["boolean", "null"] },
+      seismic_design_category: { type: ["string", "null"] },
+      missing_fields: { type: "array", items: { type: "string" } },
+      ambiguous_fields: { type: "array", items: { type: "string" } },
+      evidence_notes: {
+        type: "string",
+        description: "Brief notes on which sheet supplied which value.",
+      },
+    },
+    required: ["missing_fields", "ambiguous_fields"],
+    additionalProperties: false,
+  },
+} as const;
 
 async function stageDnaExtract(
   admin: ReturnType<typeof createClient>,
@@ -354,41 +520,151 @@ async function stageDnaExtract(
     .maybeSingle();
   if (existing?.id) return { reused: true };
 
-  // Pull project address/county to seed the DNA row. Vision extraction in the
-  // next PR will overwrite the speculative fields.
   const { data: pr } = await admin
     .from("plan_reviews")
     .select("project_id, fbc_edition, projects(address, jurisdiction, county)")
     .eq("id", planReviewId)
     .maybeSingle();
 
-  const project = (pr as unknown as {
+  const project = pr as unknown as {
     project_id: string;
     fbc_edition: string | null;
     projects: { address: string; jurisdiction: string; county: string } | null;
-  } | null);
+  } | null;
 
-  const seed = {
+  // Pick cover/code-summary pages from sheet_coverage; fall back to first 3 pages.
+  const [{ data: coverSheets }, signed] = await Promise.all([
+    admin
+      .from("sheet_coverage")
+      .select("page_index, sheet_ref, sheet_title")
+      .eq("plan_review_id", planReviewId)
+      .eq("status", "present")
+      .in("discipline", ["General"])
+      .order("page_index", { ascending: true })
+      .limit(4),
+    signedSheetUrls(admin, planReviewId),
+  ]);
+
+  let imageUrls: string[] = [];
+  if (coverSheets && coverSheets.length > 0) {
+    imageUrls = (coverSheets as Array<{ page_index: number | null }>)
+      .map((s) => signed[s.page_index ?? -1]?.signed_url)
+      .filter(Boolean) as string[];
+  }
+  if (imageUrls.length === 0) {
+    imageUrls = signed.slice(0, 3).map((s) => s.signed_url);
+  }
+
+  const baseDefaults = {
     plan_review_id: planReviewId,
     firm_id: firmId,
     fbc_edition: project?.fbc_edition ?? "8th",
     jurisdiction: project?.projects?.jurisdiction ?? null,
     county: project?.projects?.county ?? null,
-    missing_fields: [
-      "occupancy_classification",
-      "construction_type",
-      "total_sq_ft",
-      "stories",
-      "wind_speed_vult",
-      "exposure_category",
-      "risk_category",
-    ],
-    ambiguous_fields: [],
-    raw_extraction: {},
   };
-  const { error } = await admin.from("project_dna").insert(seed);
+
+  if (imageUrls.length === 0) {
+    const seed = {
+      ...baseDefaults,
+      missing_fields: [
+        "occupancy_classification",
+        "construction_type",
+        "total_sq_ft",
+        "stories",
+        "wind_speed_vult",
+        "exposure_category",
+        "risk_category",
+      ],
+      ambiguous_fields: [],
+      raw_extraction: { reason: "no_images_available" },
+    };
+    const { error } = await admin.from("project_dna").insert(seed);
+    if (error) throw error;
+    return { seeded: true, source: "no_images" };
+  }
+
+  const userText =
+    `Read the project DNA from the supplied cover / code-summary pages. ` +
+    `Florida project. Address: ${project?.projects?.address ?? "(unknown)"}, ` +
+    `County: ${project?.projects?.county ?? "(unknown)"}. ` +
+    `Return values via submit_project_dna. ` +
+    `If the county is Miami-Dade, Broward, or Monroe, hvhz must be true. ` +
+    `If you cannot read a value, set it to null and add the key to missing_fields. ` +
+    `If two sheets disagree, pick the most authoritative and add the key to ambiguous_fields.`;
+
+  let extracted: Record<string, unknown> = {};
+  try {
+    extracted = (await callAI(
+      [
+        {
+          role: "system",
+          content:
+            "You are a Florida private-provider plan reviewer extracting project DNA. Read code summaries verbatim. Never invent values.",
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userText },
+            ...imageUrls.map((u) => ({
+              type: "image_url" as const,
+              image_url: { url: u },
+            })),
+          ],
+        },
+      ],
+      DNA_SCHEMA as unknown as Record<string, unknown>,
+    )) as Record<string, unknown>;
+  } catch (err) {
+    console.error("[dna_extract] vision call failed:", err);
+    extracted = {
+      missing_fields: [
+        "occupancy_classification",
+        "construction_type",
+        "total_sq_ft",
+        "stories",
+        "wind_speed_vult",
+        "exposure_category",
+        "risk_category",
+      ],
+      ambiguous_fields: [],
+    };
+  }
+
+  const row = {
+    ...baseDefaults,
+    occupancy_classification:
+      (extracted.occupancy_classification as string | null) ?? null,
+    construction_type: (extracted.construction_type as string | null) ?? null,
+    total_sq_ft: (extracted.total_sq_ft as number | null) ?? null,
+    stories: (extracted.stories as number | null) ?? null,
+    fbc_edition:
+      (extracted.fbc_edition as string | null) ??
+      project?.fbc_edition ??
+      "8th",
+    wind_speed_vult: (extracted.wind_speed_vult as number | null) ?? null,
+    exposure_category: (extracted.exposure_category as string | null) ?? null,
+    risk_category: (extracted.risk_category as string | null) ?? null,
+    flood_zone: (extracted.flood_zone as string | null) ?? null,
+    hvhz: (extracted.hvhz as boolean | null) ?? null,
+    mixed_occupancy: (extracted.mixed_occupancy as boolean | null) ?? null,
+    is_high_rise: (extracted.is_high_rise as boolean | null) ?? null,
+    has_mezzanine: (extracted.has_mezzanine as boolean | null) ?? null,
+    seismic_design_category:
+      (extracted.seismic_design_category as string | null) ?? null,
+    missing_fields:
+      (extracted.missing_fields as string[] | undefined) ?? [],
+    ambiguous_fields:
+      (extracted.ambiguous_fields as string[] | undefined) ?? [],
+    raw_extraction: extracted,
+  };
+
+  const { error } = await admin.from("project_dna").insert(row);
   if (error) throw error;
-  return { seeded: true };
+  return {
+    extracted: true,
+    pages_read: imageUrls.length,
+    missing: row.missing_fields.length,
+  };
 }
 
 async function stageDisciplineReview(
