@@ -7,11 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import ReviewStatusBar from "@/components/review-dashboard/ReviewStatusBar";
-import ReviewSummaryHeader from "@/components/review-dashboard/ReviewSummaryHeader";
-import CrossCheckBanner from "@/components/review-dashboard/CrossCheckBanner";
-import VerificationBanner from "@/components/review-dashboard/VerificationBanner";
-import ReviewerMemoryCard from "@/components/review-dashboard/ReviewerMemoryCard";
+import ReviewHealthStrip from "@/components/review-dashboard/ReviewHealthStrip";
 import DeficiencyList from "@/components/review-dashboard/DeficiencyList";
 import HumanReviewQueue from "@/components/review-dashboard/HumanReviewQueue";
 import ProjectDNAViewer from "@/components/review-dashboard/ProjectDNAViewer";
@@ -20,6 +16,7 @@ import DeferredScopePanel from "@/components/review-dashboard/DeferredScopePanel
 import { useDeficienciesV2, useDeferredScope, useProjectDna, useSheetCoverage } from "@/hooks/useReviewDashboard";
 import { useFirmSettings } from "@/hooks/useFirmSettings";
 import { generateCountyReport } from "@/lib/county-report";
+import { determineReviewStatus } from "@/lib/review-status";
 
 interface ReviewWithProject {
   id: string;
