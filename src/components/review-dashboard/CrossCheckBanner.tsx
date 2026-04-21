@@ -1,6 +1,16 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, GitMerge, X, ChevronDown, ChevronUp, History, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  GitMerge,
+  X,
+  ChevronDown,
+  ChevronUp,
+  History,
+  Loader2,
+  GitCompareArrows,
+  ArrowRight,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
