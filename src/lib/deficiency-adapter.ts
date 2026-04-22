@@ -4,18 +4,15 @@
  *
  * Why this exists
  * ---------------
- * The new pipeline (`run-review-pipeline`) writes structured findings to
- * `deficiencies_v2`, while the existing PDF viewer / comment-letter still
- * read `plan_reviews.ai_findings`. Until those screens are rewritten on the
- * V2 dashboard primitives, this adapter lets them transparently consume V2
- * data when `plan_reviews.pipeline_version === 'v2'` — preserving every
- * existing UX hook (severity, sheet refs, code refs, recommendations).
+ * The v2 pipeline (`run-review-pipeline`) writes structured findings to
+ * `deficiencies_v2`. The existing PDF viewer / comment-letter / lint /
+ * SitePlanChecklist still consume the `Finding` interface, so this adapter
+ * shapes v2 rows down into that interface without rewriting those screens.
  *
- * Source-of-truth rule: when v2 rows exist for a review, the v2 row's
- * verification_status / requires_human_review / status MUST drive what the
- * viewer shows. We map them down into the legacy `severity` + `resolved`
- * fields plus surface the v2 fields verbatim under their original names so
- * downstream filters can opt in.
+ * Source-of-truth rule: the v2 row's verification_status / requires_human_review
+ * / status drives what the viewer shows. We map them down into the legacy
+ * `severity` + `resolved` fields plus surface the v2 fields verbatim under
+ * their original names so downstream filters can opt in.
  */
 
 import type { Finding } from "@/types";
