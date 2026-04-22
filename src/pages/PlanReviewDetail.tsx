@@ -478,8 +478,11 @@ export default function PlanReviewDetail() {
  const blob = await response.blob();
  const file = new File([blob], `vision-${filePath}`, { type: "application/pdf" });
  const base64s = await renderPDFPagesForVisionWithGrid(file, 10, 220);
- visionImages.push(...base64s);
+  visionImages.push(...base64s);
  }
+  return visionImages;
+ };
+
  const runAICheck = async (r: PlanReviewRow) => {
   // Legacy in-page AI runner — kept for the auto-trigger that has been
   // removed above. Reviewers should use "Run Pipeline" on the v2 dashboard,
