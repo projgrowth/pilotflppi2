@@ -7,12 +7,14 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { type DeficiencyV2Row } from "@/hooks/useReviewDashboard";
+import EvidenceSnippet from "./EvidenceSnippet";
 
 interface Props {
+  planReviewId: string;
   def: DeficiencyV2Row;
 }
 
-export default function DeficiencyEvidence({ def }: Props) {
+export default function DeficiencyEvidence({ planReviewId, def }: Props) {
   const evidence = (def.evidence ?? []).filter(Boolean);
   const hasContent = evidence.length > 0 || !!def.confidence_basis;
   // Default open for low-confidence findings — reviewers should see the basis up front.
@@ -81,6 +83,19 @@ export default function DeficiencyEvidence({ def }: Props) {
             <span className="font-medium">Verification: </span>
             {def.verification_notes}
           </div>
+        )}
+
+        {/* Lazy-render visual snippet only when the panel is open. Picks the first
+            sheet_ref + first evidence quote for context. "Pin to letter" persists
+            the crop for embedding in the exported comment letter. */}
+        {open && (def.sheet_refs?.length ?? 0) > 0 && evidence.length > 0 && (
+          <EvidenceSnippet
+            planReviewId={planReviewId}
+            deficiencyId={def.id}
+            sheetRef={def.sheet_refs?.[0] ?? null}
+            evidenceText={evidence[0] ?? ""}
+            pinnedUrl={def.evidence_crop_url ?? null}
+          />
         )}
       </CollapsibleContent>
     </Collapsible>
