@@ -82,8 +82,6 @@ export interface PlanReviewRow {
   id: string;
   project_id: string;
   ai_check_status: string;
-  /** @deprecated Legacy v1 JSONB store. Kept only in DB schema; no UI reads this. */
-  ai_findings?: unknown;
   file_urls: string[];
   round: number;
   created_at: string;
