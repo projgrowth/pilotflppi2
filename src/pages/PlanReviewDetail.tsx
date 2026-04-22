@@ -303,7 +303,7 @@ export default function PlanReviewDetail() {
  setRenderProgress(0);
  try {
  const allImages: PDFPageImage[] = [];
- const allTextItems: PDFTextItem[][] = [];
+ // (text-layer index removed alongside the v1 AI runner; kept image rendering only.)
  let totalSheetsAcrossFiles = 0;
  let renderedSheetsAcrossFiles = 0;
  for (let fi = 0; fi < r.file_urls.length; fi++) {
@@ -332,15 +332,7 @@ export default function PlanReviewDetail() {
  }
 
  const images = await renderPDFPagesToImages(file, 10, 150);
- // Extract real vector text + bboxes from the same pages — this is the
- // ground-truth coordinate index used to snap AI pin guesses to actual
- // visible callouts/dimensions/notes.
- let textItems: PDFTextItem[][] = [];
- try {
- textItems = await extractPagesTextItems(file, 10);
- } catch {
- textItems = images.map(() => []);
- }
+  // (vector text extraction removed — the v2 pipeline does its own grounding server-side.)
  // Keep file/page provenance on each image so we can pass an image_manifest to the AI
  // and validate page_index round-trips correctly.
  const baseIndex = allImages.length;
