@@ -93,4 +93,8 @@ export interface PlanReviewRow {
   qc_reviewer_id?: string | null;
   qc_notes?: string;
   reviewer_id?: string | null;
+  /** Defaults to 'v2'. Legacy 'v1' rows are backfilled into deficiencies_v2.
+   *  The viewer reads via adaptV2ToFindings() and disables write paths that
+   *  mutate ai_findings (run AI check, new round, pin reposition). */
+  pipeline_version?: string;
 }
