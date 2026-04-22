@@ -83,11 +83,19 @@ function useProjectReviews(projectId: string) {
  queryFn: async () => {
  const { data, error } = await supabase
  .from("plan_reviews")
- .select("id, round, ai_check_status, ai_findings, created_at")
+ .select("id, round, ai_check_status, created_at")
  .eq("project_id", projectId)
  .order("round", { ascending: false });
  if (error) throw error;
- return data;
+ const reviewIds = (data || []).map((r) => r.id);
+ if (reviewIds.length === 0) return (data || []).map((r) => ({ ...r, findings_count: 0 }));
+ const { data: defs } = await supabase
+ .from("deficiencies_v2")
+ .select("plan_review_id")
+ .in("plan_review_id", reviewIds);
+ const counts = new Map<string, number>();
+ (defs || []).forEach((d) => counts.set(d.plan_review_id, (counts.get(d.plan_review_id) || 0) + 1));
+ return (data || []).map((r) => ({ ...r, findings_count: counts.get(r.id) || 0 }));
  },
  enabled: !!projectId,
  });
