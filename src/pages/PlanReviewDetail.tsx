@@ -3,9 +3,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { callAI, streamAI } from "@/lib/ai";
-import { renderPDFPagesToImages, renderPDFPagesForVisionWithGrid, gridCellToCenter, extractPagesTextItems, snapToNearestText, getPDFPageCount, renderZoomCropForCell, type PDFPageImage, type PDFTextItem } from "@/lib/pdf-utils";
-import { chunkPromises } from "@/lib/utils";
+import { streamAI } from "@/lib/ai";
+import { renderPDFPagesToImages, getPDFPageCount, type PDFPageImage } from "@/lib/pdf-utils";
 import { useFirmSettings } from "@/hooks/useFirmSettings";
 import { useFindingHistory, logFindingStatusChange } from "@/hooks/useFindingHistory";
 import { useAuth } from "@/contexts/AuthContext";
@@ -25,26 +24,21 @@ import { ReviewTopBar } from "@/components/plan-review/ReviewTopBar";
 import { CountyPanel } from "@/components/plan-review/CountyPanel";
 import { LetterPanel } from "@/components/plan-review/LetterPanel";
 import { RightPanelTabs } from "@/components/plan-review/RightPanelTabs";
-import { KeyboardShortcutsOverlay } from "@/components/plan-review/KeyboardShortcutsOverlay";
-import { RoundDiffPanel } from "@/components/plan-review/RoundDiffPanel";
 import { LetterLintDialog } from "@/components/plan-review/LetterLintDialog";
 import { useConfirm } from "@/hooks/useConfirm";
 import { useLetterAutosave } from "@/hooks/useLetterAutosave";
-import { lintCommentLetter, hasBlockingIssues, type LintIssue } from "@/lib/letter-linter";
+import { lintCommentLetter, type LintIssue } from "@/lib/letter-linter";
 import { cn } from "@/lib/utils";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { FindingCard, type Finding } from "@/components/FindingCard";
 import { SeverityDonut } from "@/components/SeverityDonut";
-import { ScanTimeline } from "@/components/ScanTimeline";
 import { PlanMarkupViewer } from "@/components/PlanMarkupViewer";
 import { FindingStatusFilter, type FindingStatus } from "@/components/FindingStatusFilter";
 import { BulkTriageFilters, type ConfidenceFilter } from "@/components/BulkTriageFilters";
 import { DisciplineChecklist } from "@/components/DisciplineChecklist";
 import { SitePlanChecklist } from "@/components/SitePlanChecklist";
-import { getCountyRequirements } from "@/lib/county-requirements";
 import {
  isHVHZ, getDisciplineIcon, getDisciplineColor,
- getDisciplineLabel, DISCIPLINE_ORDER, SCANNING_STEPS,
+ getDisciplineLabel, DISCIPLINE_ORDER,
 } from "@/lib/county-utils";
 import type { PlanReviewRow } from "@/types";
 import { adaptV2ToFindings, type DeficiencyV2Lite } from "@/lib/deficiency-adapter";
@@ -67,18 +61,7 @@ function getWorstSeverity(findings: Finding[]): string {
  return "minor";
 }
 
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
- let lastError: Error | null = null;
- for (let i = 0; i < maxRetries; i++) {
- try {
- return await fn();
- } catch (err) {
- lastError = err instanceof Error ? err : new Error(String(err));
- if (i < maxRetries - 1) await new Promise((r) => setTimeout(r, Math.pow(2, i) * 1000));
- }
- }
- throw lastError;
-}
+// (withRetry helper removed — only used by the retired in-page AI runner.)
 
 function getDaysRemaining(createdAt: string): number {
  const deadline = new Date(createdAt);
@@ -127,184 +110,120 @@ export default function PlanReviewDetail() {
  enabled: !!review?.project_id,
  });
 
- const isV2Pipeline = review?.pipeline_version === "v2";
- // ── Findings live in deficiencies_v2 (verified, dedup'd, with human-review
- // flags). We adapt them down to the legacy Finding shape so the existing PDF
- // viewer, comment letter, lint, and SitePlanChecklist all consume V2 data
- // without bespoke V2 components. The legacy ai_findings JSONB on plan_reviews
- // is read-only fallback for very old rows; nothing writes to it anymore.
- const { data: v2Findings } = useQuery({
-  queryKey: ["v2-findings-for-viewer", review?.id],
-  enabled: !!review?.id,
-  queryFn: async () => {
-   const { data, error } = await supabase
-    .from("deficiencies_v2")
-    .select(
-     "id, def_number, discipline, finding, required_action, sheet_refs, code_reference, evidence, confidence_score, confidence_basis, priority, life_safety_flag, permit_blocker, liability_flag, requires_human_review, human_review_reason, verification_status, status, model_version",
-    )
-    .eq("plan_review_id", review!.id)
-    .order("def_number", { ascending: true });
-   if (error) throw error;
-   return adaptV2ToFindings((data ?? []) as DeficiencyV2Lite[]);
-  },
- });
+  // Findings live in deficiencies_v2 (verified, dedup'd, with human-review
+  // flags). The adapter shapes them into the legacy Finding interface so the
+  // existing PDF viewer, comment letter, lint, and SitePlanChecklist consume
+  // V2 data without bespoke V2 components. Nothing writes to ai_findings
+  // anymore — pipeline runs, dispositions, and new rounds happen on the
+  // /dashboard route, which is the sole writer of deficiencies_v2.
+  const { data: v2Findings } = useQuery({
+    queryKey: ["v2-findings-for-viewer", review?.id],
+    enabled: !!review?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("deficiencies_v2")
+        .select(
+          "id, def_number, discipline, finding, required_action, sheet_refs, code_reference, evidence, confidence_score, confidence_basis, priority, life_safety_flag, permit_blocker, liability_flag, requires_human_review, human_review_reason, verification_status, status, model_version",
+        )
+        .eq("plan_review_id", review!.id)
+        .order("def_number", { ascending: true });
+      if (error) throw error;
+      return adaptV2ToFindings((data ?? []) as DeficiencyV2Lite[]);
+    },
+  });
 
- const [aiRunning, setAiRunning] = useState(false);
- const [scanStep, setScanStep] = useState(0);
- const [commentLetter, setCommentLetter] = useState("");
- const [generatingLetter, setGeneratingLetter] = useState(false);
- const letterAbortRef = useRef<AbortController | null>(null);
- const [copied, setCopied] = useState(false);
- const [uploading, setUploading] = useState(false);
- const [rightPanel, setRightPanel] = useState<RightPanelMode>("findings");
- const fileInputRef = useRef<HTMLInputElement>(null);
- const [activeFindingIndex, setActiveFindingIndex] = useState<number | null>(null);
- const [pageImages, setPageImages] = useState<PDFPageImage[]>([]);
- const [pageTextItems, setPageTextItems] = useState<PDFTextItem[][]>([]);
- /** {totalSheets, renderedSheets} — populated after we open the PDFs. Used to show the "Reviewing first 10 of N" banner. */
- const [pageCapInfo, setPageCapInfo] = useState<{ total: number; rendered: number } | null>(null);
- /** Discrete AI run phase — drives the live step indicator instead of a generic spinner. */
- const [aiPhase, setAiPhase] = useState<"idle" | "rendering" | "extracting_text" | "vision" | "validating" | "refining" | "saving">("idle");
- const [renderingPages, setRenderingPages] = useState(false);
- const [renderProgress, setRenderProgress] = useState(0);
- const findingRefs = useRef<Map<number, HTMLDivElement>>(new Map());
- const [findingStatuses, setFindingStatuses] = useState<Record<number, FindingStatus>>({});
- const [statusFilter, setStatusFilter] = useState<FindingStatus | "all">("all");
- const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all");
- const [disciplineFilter, setDisciplineFilter] = useState<string | "all">("all");
- const [sheetFilter, setSheetFilter] = useState<string | "all">("all");
- const [showDiff, setShowDiff] = useState(false);
- const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
- const [aiCompleteFlash, setAiCompleteFlash] = useState<number | null>(null);
- const [uploadSuccess, setUploadSuccess] = useState(false);
- const [repositioningIndex, setRepositioningIndex] = useState<number | null>(null);
- /** True when we detected another tab is mid-run on this review and we're showing
- * a "Resuming…" banner backed by realtime. Disables the "Run AI Check" button. */
- const [resumingFromOtherTab, setResumingFromOtherTab] = useState(false);
- const [showShortcuts, setShowShortcuts] = useState(false);
- const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
- const [showLintDialog, setShowLintDialog] = useState(false);
- const letterHydratedRef = useRef<string | null>(null);
+  // Realtime: as the v2 pipeline writes new findings, refetch so the viewer
+  // streams them in (same pattern as the dashboard).
+  useEffect(() => {
+    if (!review?.id) return;
+    const channel = supabase
+      .channel(`plan-review-detail-defs-${review.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "deficiencies_v2", filter: `plan_review_id=eq.${review.id}` },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["v2-findings-for-viewer", review.id] });
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [review?.id, queryClient]);
 
- // Autosave the comment letter to the review row, debounced.
- const { state: autosaveState, lastSavedAt, dirty: letterDirty } = useLetterAutosave(
-  review?.id,
-  commentLetter,
-  !generatingLetter,
- );
+  const [commentLetter, setCommentLetter] = useState("");
+  const [generatingLetter, setGeneratingLetter] = useState(false);
+  const letterAbortRef = useRef<AbortController | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [rightPanel, setRightPanel] = useState<RightPanelMode>("findings");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeFindingIndex, setActiveFindingIndex] = useState<number | null>(null);
+  const [pageImages, setPageImages] = useState<PDFPageImage[]>([]);
+  /** {totalSheets, renderedSheets} — populated after we open the PDFs. Used to show the "Reviewing first 10 of N" banner. */
+  const [pageCapInfo, setPageCapInfo] = useState<{ total: number; rendered: number } | null>(null);
+  const [renderingPages, setRenderingPages] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
+  const findingRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [findingStatuses, setFindingStatuses] = useState<Record<number, FindingStatus>>({});
+  const [statusFilter, setStatusFilter] = useState<FindingStatus | "all">("all");
+  const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all");
+  const [disciplineFilter, setDisciplineFilter] = useState<string | "all">("all");
+  const [sheetFilter, setSheetFilter] = useState<string | "all">("all");
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [repositioningIndex, setRepositioningIndex] = useState<number | null>(null);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
+  const [showLintDialog, setShowLintDialog] = useState(false);
+  const letterHydratedRef = useRef<string | null>(null);
 
- // Hydrate the letter draft once per review id (don't clobber in-flight stream).
- useEffect(() => {
-  if (!review) return;
-  if (letterHydratedRef.current === review.id) return;
-  letterHydratedRef.current = review.id;
-  const draft = (review as { comment_letter_draft?: string }).comment_letter_draft;
-  if (typeof draft === "string" && draft.length > 0) {
-   setCommentLetter(draft);
-  }
- }, [review?.id]);
+  // Autosave the comment letter to the review row, debounced.
+  const { state: autosaveState, lastSavedAt, dirty: letterDirty } = useLetterAutosave(
+    review?.id,
+    commentLetter,
+    !generatingLetter,
+  );
 
- /** Persist a phase transition so a fresh tab can show a "Resuming…" banner if
- * the user closes the original. Best-effort — never fails the run. */
- const writeAiProgress = useCallback(async (
- reviewId: string,
- phase: string,
- extra: Record<string, unknown> = {}
- ) => {
- try {
- await supabase.from("plan_reviews").update({
- ai_run_progress: { phase, updated_at: new Date().toISOString(), ...extra },
- }).eq("id", reviewId);
- } catch {
- // Swallow — progress writes must never break the AI run itself.
- }
- }, []);
+  // Hydrate the letter draft once per review id (don't clobber in-flight stream).
+  useEffect(() => {
+    if (!review) return;
+    if (letterHydratedRef.current === review.id) return;
+    letterHydratedRef.current = review.id;
+    const draft = (review as { comment_letter_draft?: string }).comment_letter_draft;
+    if (typeof draft === "string" && draft.length > 0) {
+      setCommentLetter(draft);
+    }
+  }, [review?.id]);
 
- const handleRepositionConfirm = useCallback(async (_idx: number, _newMarkup: { page_index: number; x: number; y: number; width: number; height: number }) => {
-  // Findings now live in deficiencies_v2 and reference sheets, not pixel
-  // coordinates. Pin repositioning isn't yet supported on the v2 source of
-  // truth — fail loud rather than silently writing to a dead JSONB column.
-  void _idx;
-  void _newMarkup;
-  toast.error("Pin repositioning isn't available — findings now reference sheets, not pixel coordinates.");
-  setRepositioningIndex(null);
- }, []);
+  const handleRepositionConfirm = useCallback(async (_idx: number, _newMarkup: { page_index: number; x: number; y: number; width: number; height: number }) => {
+    // Findings now live in deficiencies_v2 and reference sheets, not pixel
+    // coordinates. Pin repositioning isn't supported on the v2 source of
+    // truth — fail loud rather than silently writing to a dead JSONB column.
+    void _idx;
+    void _newMarkup;
+    toast.error("Pin repositioning isn't available — findings now reference sheets, not pixel coordinates.");
+    setRepositioningIndex(null);
+  }, []);
 
- useEffect(() => {
- if (review?.finding_statuses) {
- const loaded: Record<number, FindingStatus> = {};
- for (const [k, v] of Object.entries(review.finding_statuses as Record<string, string>)) {
- loaded[Number(k)] = v as FindingStatus;
- }
- setFindingStatuses(loaded);
- } else {
- setFindingStatuses({});
- }
- }, [review?.id]);
+  useEffect(() => {
+    if (review?.finding_statuses) {
+      const loaded: Record<number, FindingStatus> = {};
+      for (const [k, v] of Object.entries(review.finding_statuses as Record<string, string>)) {
+        loaded[Number(k)] = v as FindingStatus;
+      }
+      setFindingStatuses(loaded);
+    } else {
+      setFindingStatuses({});
+    }
+  }, [review?.id]);
 
- // Auto-render pages when review loads with files
- const hasAutoRendered = useRef(false);
- useEffect(() => {
- if (review && review.file_urls?.length > 0 && pageImages.length === 0 && !renderingPages && !hasAutoRendered.current) {
- hasAutoRendered.current = true;
- renderDocumentPages(review);
- }
- }, [review]);
-
- // Pipeline auto-trigger removed: the v2 dashboard owns pipeline orchestration
- // via the "Run Pipeline" button. The legacy v1 auto-runner is intentionally
- // disabled to prevent it from writing to ai_findings and creating a second
- // source of truth that disagrees with deficiencies_v2.
-
- // ── Cross-tab resume: if this review is already "running" elsewhere AND its
- // ai_run_progress was updated within the last 2 minutes, treat it as a live
- // run owned by another tab. Subscribe to realtime updates so we mirror its
- // phase indicator, and disable the local "Run AI Check" button to prevent
- // double-spending Lovable AI credits. After 2 min of silence we assume the
- // run is dead and let the user re-trigger.
- useEffect(() => {
- if (!review || review.ai_check_status !== "running") {
- setResumingFromOtherTab(false);
- return;
- }
- if (aiRunning) return; // We're the owner — nothing to resume.
- const progress = (review as { ai_run_progress?: { phase?: string; updated_at?: string } }).ai_run_progress;
- const updatedAt = progress?.updated_at ? new Date(progress.updated_at).getTime() : 0;
- const fresh = updatedAt && Date.now() - updatedAt < 2 * 60 * 1000;
- if (!fresh) {
- setResumingFromOtherTab(false);
- return;
- }
- setResumingFromOtherTab(true);
- if (progress?.phase && progress.phase !== "complete" && progress.phase !== "error") {
- setAiPhase(progress.phase as typeof aiPhase);
- }
-
- const channel = supabase
- .channel(`plan-review-${review.id}`)
- .on(
- "postgres_changes",
- { event: "UPDATE", schema: "public", table: "plan_reviews", filter: `id=eq.${review.id}` },
- (payload) => {
- const next = payload.new as { ai_check_status?: string; ai_run_progress?: { phase?: string } };
- if (next.ai_run_progress?.phase) {
- const ph = next.ai_run_progress.phase;
- if (ph !== "complete" && ph !== "error") {
- setAiPhase(ph as typeof aiPhase);
- }
- }
- if (next.ai_check_status && next.ai_check_status !== "running") {
- // Other tab finished — refresh and exit resume mode.
- setResumingFromOtherTab(false);
- setAiPhase("idle");
- queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
- }
- }
- )
- .subscribe();
-
- return () => { supabase.removeChannel(channel); };
- }, [review?.id, review?.ai_check_status, aiRunning, id, queryClient]);
+  // Auto-render pages when review loads with files
+  const hasAutoRendered = useRef(false);
+  useEffect(() => {
+    if (review && review.file_urls?.length > 0 && pageImages.length === 0 && !renderingPages && !hasAutoRendered.current) {
+      hasAutoRendered.current = true;
+      renderDocumentPages(review);
+    }
+  }, [review]);
 
 
  const statusSaveTimer = useRef<NodeJS.Timeout | null>(null);
@@ -333,13 +252,7 @@ export default function PlanReviewDetail() {
  });
  }, [review, persistFindingStatuses, user, refetchHistory]);
 
- useEffect(() => {
- if (!aiRunning) { setScanStep(0); return; }
- const interval = setInterval(() => {
- setScanStep((s) => (s + 1) % SCANNING_STEPS.length);
- }, 1800);
- return () => clearInterval(interval);
- }, [aiRunning]);
+  // (scan-step ticker removed — no in-page AI run to drive it.)
 
  const handleFileUpload = async (files: FileList | null) => {
  if (!files || !review) return;
@@ -390,7 +303,7 @@ export default function PlanReviewDetail() {
  setRenderProgress(0);
  try {
  const allImages: PDFPageImage[] = [];
- const allTextItems: PDFTextItem[][] = [];
+ // (text-layer index removed alongside the v1 AI runner; kept image rendering only.)
  let totalSheetsAcrossFiles = 0;
  let renderedSheetsAcrossFiles = 0;
  for (let fi = 0; fi < r.file_urls.length; fi++) {
@@ -419,15 +332,7 @@ export default function PlanReviewDetail() {
  }
 
  const images = await renderPDFPagesToImages(file, 10, 150);
- // Extract real vector text + bboxes from the same pages — this is the
- // ground-truth coordinate index used to snap AI pin guesses to actual
- // visible callouts/dimensions/notes.
- let textItems: PDFTextItem[][] = [];
- try {
- textItems = await extractPagesTextItems(file, 10);
- } catch {
- textItems = images.map(() => []);
- }
+  // (vector text extraction removed — the v2 pipeline does its own grounding server-side.)
  // Keep file/page provenance on each image so we can pass an image_manifest to the AI
  // and validate page_index round-trips correctly.
  const baseIndex = allImages.length;
@@ -440,14 +345,9 @@ export default function PlanReviewDetail() {
  pageInFile: idx + 1,
  }))
  );
- // Pad text items array if extraction returned fewer pages than images.
- for (let idx = 0; idx < images.length; idx++) {
- allTextItems.push(textItems[idx] || []);
- }
- setRenderProgress(((fi + 1) / r.file_urls.length) * 100);
- }
- setPageImages(allImages);
- setPageTextItems(allTextItems);
+  setRenderProgress(((fi + 1) / r.file_urls.length) * 100);
+  }
+  setPageImages(allImages);
  setPageCapInfo({ total: totalSheetsAcrossFiles, rendered: renderedSheetsAcrossFiles });
  return allImages;
  } catch {
@@ -457,476 +357,18 @@ export default function PlanReviewDetail() {
  }
  };
 
- /**
- * Render the same PDFs at higher DPI for AI vision, with a 10×10 labelled grid
- * overlaid on each page. The model uses the visible cell labels (e.g. "H7") to
- * anchor each finding to a known coordinate cell. Returns base64 strings only,
- * in the same order as `displayImages`, so page_index lines up.
- */
- const renderVisionImages = async (r: PlanReviewRow): Promise<string[]> => {
- if (!r.file_urls || r.file_urls.length === 0) return [];
- const visionImages: string[] = [];
- for (const storedPath of r.file_urls) {
- if (!storedPath) continue;
- const filePath = storedPath.includes('/storage/v1/')
- ? storedPath.split('/documents/').pop() || storedPath
- : storedPath;
- const { data: signedData, error: signError } = await supabase.storage
- .from("documents")
- .createSignedUrl(filePath, 3600);
- if (signError || !signedData?.signedUrl) continue;
- const response = await fetch(signedData.signedUrl);
- const blob = await response.blob();
- const file = new File([blob], `vision-${filePath}`, { type: "application/pdf" });
- const base64s = await renderPDFPagesForVisionWithGrid(file, 10, 220);
-  visionImages.push(...base64s);
- }
-  return visionImages;
- };
+  // ── runAICheck + renderVisionImages removed ──
+  // The v1 in-page AI runner has been retired. The v2 pipeline (run-review-pipeline
+  // edge function) is now the sole writer of deficiencies_v2 and is launched from
+  // the /dashboard route. The "Run AI Check" buttons in this page route the user
+  // there. See plan #2 / Wave 2 cleanup.
 
- const runAICheck = async (r: PlanReviewRow) => {
-  // Legacy in-page AI runner — kept for the auto-trigger that has been
-  // removed above. Reviewers should use "Run Pipeline" on the v2 dashboard,
-  // which is the only writer for deficiencies_v2. Body retained for now in
-  // case any leftover row needs it; will be deleted in a follow-up cleanup.
- setAiRunning(true);
- setRightPanel("findings");
- setActiveFindingIndex(null);
- setAiPhase("rendering");
- try {
- // Stamp the reviewer at AI run time so we can later block self-QC.
- await supabase.from("plan_reviews").update({ ai_check_status: "running", reviewer_id: user?.id ?? null }).eq("id", r.id);
- writeAiProgress(r.id, "rendering");
-
- let findings: Finding[] = [];
- const hasFiles = r.file_urls && r.file_urls.length > 0;
-
- if (hasFiles) {
- // Always re-render display pages first so we have provenance metadata
- // AND a vector text index to snap pins against.
- const displayImages = pageImages.length > 0 ? pageImages : await renderDocumentPages(r);
- // Pull whatever text-layer index we have (newly built or from prior render).
- const textIndex = pageTextItems;
- if (displayImages.length > 0) {
- setAiPhase("extracting_text");
- writeAiProgress(r.id, "extracting_text");
- // Build the manifest BEFORE the vision render so model has full grounding.
- const imageManifest = displayImages.map((img, idx) => ({
- index: idx,
- file: img.fileName || `file-${img.fileIndex ?? 0}`,
- page_in_file: img.pageInFile ?? idx + 1,
- // Hand the model up to ~30 readable strings per page so it can pick a
- // real callout/note/dimension as `nearest_text` instead of inventing one.
- text_items: (textIndex[idx] || [])
- .filter((t) => t.text.length >= 1 && t.text.length <= 40)
- .slice(0, 30)
- .map((t) => t.text),
- }));
-
- setAiPhase("vision");
- writeAiProgress(r.id, "vision");
- // Render at 220 DPI specifically for the AI call (kept in memory only briefly).
- const visionBase64s = await renderVisionImages(r);
- const imagesForAI = visionBase64s.length === displayImages.length
- ? visionBase64s
- : displayImages.map((img) => img.base64);
-
- const countyConfig = getCountyRequirements(r.project?.county || "");
- const result = await withRetry(() =>
- callAI({
- action: "plan_review_check_visual",
- payload: {
- project_name: r.project?.name,
- address: r.project?.address,
- trade_type: r.project?.trade_type,
- county: r.project?.county,
- jurisdiction: r.project?.jurisdiction,
- round: r.round,
- county_requirements: {
- hvhz: countyConfig.hvhz,
- productApprovalFormat: countyConfig.productApprovalFormat,
- designWindSpeed: countyConfig.designWindSpeed,
- amendments: countyConfig.amendments,
- cccl: countyConfig.cccl,
- },
- image_manifest: imageManifest,
- images: imagesForAI,
- },
- })
- );
- try {
- findings = JSON.parse(result);
- if (!Array.isArray(findings)) {
- const match = result.match(/\[[\s\S]*\]/);
- findings = match ? JSON.parse(match[0]) : [];
- }
- } catch {
- // Model returned prose around the JSON; salvage the array.
- const match = result.match(/\[[\s\S]*\]/);
- try { findings = match ? JSON.parse(match[0]) : []; } catch { findings = []; }
- }
-
- // Stamp every finding with a stable UUID at parse time. Status,
- // history, crop URLs, and corrections lookups all key off this
- // forever — never the array index.
- findings = findings.map((f) => ({ ...f, finding_id: f.finding_id || crypto.randomUUID() }));
-
- setAiPhase("validating");
- writeAiProgress(r.id, "validating");
- // ── Validate & repair page_index, anchor pin to grid_cell, then SNAP to vector text ──
- const maxIndex = displayImages.length - 1;
- findings = findings.map((f) => {
- if (!f.markup) return f;
- const pi = f.markup.page_index;
- const pageStr = (f.page || "").trim().toLowerCase();
-
- // Out of range → try to remap by sheet name; otherwise drop the markup.
- if (typeof pi !== "number" || pi < 0 || pi > maxIndex) {
- if (pageStr) {
- const remap = displayImages.findIndex((img) =>
- (img.fileName || "").toLowerCase().includes(pageStr) ||
- pageStr.includes(`page ${img.pageInFile}`)
- );
- if (remap >= 0) {
- return { ...f, markup: { ...f.markup, page_index: remap } };
- }
- }
- console.warn(`[ai-check] dropping out-of-range page_index=${pi} for finding "${f.code_ref}"`);
- const { markup: _drop, ...rest } = f;
- return rest as Finding;
- }
-
- const m = f.markup;
- const gridCell: string | undefined = typeof m.grid_cell === "string" ? m.grid_cell.trim().toUpperCase() : undefined;
- const nearestText: string = typeof m.nearest_text === "string" ? m.nearest_text.trim() : "";
- const cellCenter = gridCellToCenter(gridCell);
-
- // Clamp box dimensions so a misbehaving model can't paint a 50% × 50% rectangle.
- let x = Math.max(0, Math.min(98, m.x ?? 0));
- let y = Math.max(0, Math.min(98, m.y ?? 0));
- const width = Math.max(1, Math.min(15, m.width ?? 4));
- const height = Math.max(1, Math.min(10, m.height ?? 4));
-
- // ── Vector-text snap (precision 1% instead of 10%) ──
- // If we have a text-layer match for the model's `nearest_text` on
- // the same page, jump the pin's center to the actual text bbox
- // center. This is the single biggest precision win — we use the
- // PDF's own coordinates instead of trusting the model's eyeballed %.
- let snapped = false;
- const pageItems = textIndex[pi] || [];
- if (nearestText && pageItems.length > 0) {
- const hit = snapToNearestText(pageItems, nearestText, cellCenter);
- if (hit) {
- x = Math.max(0, Math.min(100 - width, hit.x - width / 2));
- y = Math.max(0, Math.min(100 - height, hit.y - height / 2));
- snapped = true;
- }
- }
-
- // If we did NOT snap to vector text but we have a valid grid cell,
- // force the BOX CENTER to sit inside that cell, clamped to ±5% of
- // the cell center. Bounds worst-case error to one grid cell (~10%).
- if (!snapped && cellCenter) {
- const desiredCx = Math.max(cellCenter.x - 5, Math.min(cellCenter.x + 5, x + width / 2));
- const desiredCy = Math.max(cellCenter.y - 5, Math.min(cellCenter.y + 5, y + height / 2));
- x = Math.max(0, Math.min(100 - width, desiredCx - width / 2));
- y = Math.max(0, Math.min(100 - height, desiredCy - height / 2));
- }
-
- // Confidence:
- // - high: snapped to real text OR (grid_cell + non-empty nearest_text)
- // - medium: grid_cell only
- // - low: neither (raw guess)
- // (User-repositioned pins are forced to "high" elsewhere on save.)
- let pin_confidence: "high" | "medium" | "low";
- if (snapped) {
- pin_confidence = "high";
- } else if (cellCenter && nearestText.length >= 2) {
- pin_confidence = "high";
- } else if (cellCenter) {
- pin_confidence = "medium";
- } else {
- pin_confidence = "low";
- }
-
- return {
- ...f,
- markup: {
- ...m,
- page_index: pi,
- x,
- y,
- width,
- height,
- grid_cell: gridCell,
- nearest_text: nearestText,
- pin_confidence,
- },
- };
- });
- }
- }
-
- if (findings.length === 0) {
- setAiPhase("vision");
- const countyConfigFallback = getCountyRequirements(r.project?.county || "");
- const payload: Record<string, unknown> = {
- project_name: r.project?.name,
- address: r.project?.address,
- trade_type: r.project?.trade_type,
- county: r.project?.county,
- jurisdiction: r.project?.jurisdiction,
- round: r.round,
- county_requirements: {
- hvhz: countyConfigFallback.hvhz,
- productApprovalFormat: countyConfigFallback.productApprovalFormat,
- designWindSpeed: countyConfigFallback.designWindSpeed,
- amendments: countyConfigFallback.amendments,
- cccl: countyConfigFallback.cccl,
- },
- };
- if (hasFiles) {
- payload.document_context = `Plans attached: ${r.file_urls.map((u) => decodeURIComponent(u.split("/").pop() || "")).join(", ")}`;
- }
- const result = await withRetry(() => callAI({ action: "plan_review_check", payload }));
- try {
- findings = JSON.parse(result);
- if (!Array.isArray(findings)) {
- const match = result.match(/\[[\s\S]*\]/);
- findings = match ? JSON.parse(match[0]) : [];
- }
- } catch {
- try {
- const match = result.match(/\[[\s\S]*\]/);
- if (match) findings = JSON.parse(match[0]);
- } catch { findings = []; }
- }
- // Fallback path also needs stable ids.
- findings = findings.map((f) => ({ ...f, finding_id: f.finding_id || crypto.randomUUID() }));
- }
-
- // ── SECOND-PASS ZOOM REFINEMENT ──
- // For findings still at medium/low pin_confidence, render a 2× zoomed
- // crop of the implicated grid cell (+ neighbors) and ask the model to
- // re-identify the element. If it returns a refined nearest_text, snap
- // again — we already have the page's text-layer index in `pageTextItems`.
- const displayImagesForRefine = pageImages.length > 0 ? pageImages : await renderDocumentPages(r);
- const refineCandidates = findings
- .map((f, i) => ({ f, i }))
- .filter(({ f }) => {
- const conf = f.markup?.pin_confidence;
- return f.markup && (conf === "medium" || conf === "low") && !!f.markup.grid_cell;
- });
-
- if (refineCandidates.length > 0 && displayImagesForRefine.length > 0) {
- setAiPhase("refining");
- writeAiProgress(r.id, "refining", { current: 0, total: Math.min(refineCandidates.length, 12) });
- // Cache by `${fileIndex}` to avoid re-downloading the same PDF for many findings on the same file.
- const fileCache = new Map<number, File>();
- const getFileForIndex = async (fileIndex: number): Promise<File | null> => {
- if (fileCache.has(fileIndex)) return fileCache.get(fileIndex)!;
- const storedPath = r.file_urls[fileIndex];
- if (!storedPath) return null;
- const filePath = storedPath.includes('/storage/v1/')
- ? storedPath.split('/documents/').pop() || storedPath
- : storedPath;
- const { data: signedData } = await supabase.storage.from("documents").createSignedUrl(filePath, 3600);
- if (!signedData?.signedUrl) return null;
- const blob = await (await fetch(signedData.signedUrl)).blob();
- const fileName = decodeURIComponent(filePath.split("/").pop() || `doc-${fileIndex}.pdf`);
- const file = new File([blob], fileName, { type: "application/pdf" });
- fileCache.set(fileIndex, file);
- return file;
- };
-
- // Convert a "data:image/jpeg;base64,xxx" URL to a Blob for storage upload.
- const dataUrlToBlob = (dataUrl: string): Blob => {
- const [meta, b64] = dataUrl.split(",");
- const mime = (meta.match(/data:(.*?);/) || [])[1] || "image/jpeg";
- const bin = atob(b64);
- const bytes = new Uint8Array(bin.length);
- for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
- return new Blob([bytes], { type: mime });
- };
-
- // Limit to the first ~12 candidates so we don't blow latency on huge result sets.
- const MAX_REFINE = 12;
- const slice = refineCandidates.slice(0, MAX_REFINE);
- let processed = 0;
-
- // Parallelize 3-at-a-time. Each worker is independent (different finding,
- // different crop, different AI call), so this is ~3x faster end-to-end
- // without overwhelming the gateway. Errors per item are isolated.
- const refineResults = await chunkPromises(slice, 3, async ({ f, i }) => {
- const pi = f.markup!.page_index;
- const img = displayImagesForRefine[pi];
- if (!img || img.fileIndex === undefined || img.pageInFile === undefined) return null;
- const sourceFile = await getFileForIndex(img.fileIndex);
- if (!sourceFile) return null;
- const crop = await renderZoomCropForCell(sourceFile, img.pageInFile, f.markup!.grid_cell!, 280);
- if (!crop) return null;
-
- const result = await callAI({
- action: "refine_finding_pin",
- payload: {
- description: f.description,
- code_ref: f.code_ref,
- grid_cell: f.markup!.grid_cell,
- original_nearest_text: f.markup!.nearest_text || "",
- images: [crop.base64],
- },
- });
- let parsed: { nearest_text?: string; x?: number; y?: number; width?: number; height?: number; found?: boolean } | null = null;
- try { parsed = JSON.parse(result); } catch {
- const m = result.match(/\{[\s\S]*\}/);
- if (m) try { parsed = JSON.parse(m[0]); } catch { parsed = null; }
- }
- if (!parsed || parsed.found === false) return null;
-
- const pageItems = pageTextItems[pi] || [];
- const refinedText = (parsed.nearest_text || "").trim();
- const cellCenter = gridCellToCenter(f.markup!.grid_cell);
- let snappedToText = false;
- let newX = f.markup!.x ?? 0;
- let newY = f.markup!.y ?? 0;
- const newW = f.markup!.width ?? 4;
- const newH = f.markup!.height ?? 4;
-
- if (refinedText && pageItems.length > 0) {
- const hit = snapToNearestText(pageItems, refinedText, cellCenter);
- if (hit) {
- newX = Math.max(0, Math.min(100 - newW, hit.x - newW / 2));
- newY = Math.max(0, Math.min(100 - newH, hit.y - newH / 2));
- snappedToText = true;
- }
- }
- if (!snappedToText && typeof parsed.x === "number" && typeof parsed.y === "number") {
- const cropPctX = Math.max(0, Math.min(100, parsed.x));
- const cropPctY = Math.max(0, Math.min(100, parsed.y));
- const pageX = crop.crop.x + (cropPctX / 100) * crop.crop.width;
- const pageY = crop.crop.y + (cropPctY / 100) * crop.crop.height;
- newX = Math.max(0, Math.min(100 - newW, pageX));
- newY = Math.max(0, Math.min(100 - newH, pageY));
- }
-
- let cropUrl: string | undefined;
- try {
- const cropBlob = dataUrlToBlob(crop.base64);
- // Crop file path keys off finding_id (stable) instead of array index (volatile).
- const cropPath = `plan-reviews/${r.id}/finding-crops/${f.finding_id || i}.jpg`;
- const { error: upErr } = await supabase.storage
- .from("documents")
- .upload(cropPath, cropBlob, { upsert: true, contentType: "image/jpeg" });
- if (!upErr) {
- const { data: signed } = await supabase.storage
- .from("documents")
- .createSignedUrl(cropPath, 60 * 60 * 24 * 365);
- cropUrl = signed?.signedUrl;
- }
- } catch (uploadErr) {
- console.warn("[ai-check] crop upload failed for finding", i, uploadErr);
- }
-
- return {
- i,
- updated: {
- ...f,
- markup: {
- ...f.markup!,
- x: newX,
- y: newY,
- nearest_text: refinedText || f.markup!.nearest_text,
- pin_confidence: "high" as const,
- },
- crop_url: cropUrl ?? f.crop_url,
- },
- };
- });
-
- // Apply results in original order; tick progress as each completes.
- let upgraded = 0;
- for (const r2 of refineResults) {
- processed++;
- if ("value" in r2 && r2.value) {
- findings[r2.value.i] = r2.value.updated;
- upgraded++;
- } else if ("error" in r2) {
- console.warn("[ai-check] refine pass failed", r2.error);
- }
- writeAiProgress(r.id, "refining", { current: processed, total: slice.length });
- }
- if (upgraded > 0) {
- console.info(`[ai-check] refined ${upgraded}/${slice.length} low-confidence pins via 2× parallel zoom`);
- }
- }
-
- setAiPhase("saving");
- writeAiProgress(r.id, "saving");
- const prevFindings = r.ai_findings || [];
-
- // Stamp every finding with prompt + model version so audits work even
- // after we change prompts later. (Defensibility for FS 553.791.)
- const stampedFindings = findings.map((f) => ({
- ...f,
- prompt_version: f.prompt_version ?? "v2.2-grid+text-snap+zoom-refine",
- model_version: f.model_version ?? "google/gemini-2.5-pro",
- }));
-
- await supabase.from("plan_reviews").update({
- ai_check_status: "complete",
- ai_findings: JSON.parse(JSON.stringify(stampedFindings)),
- previous_findings: JSON.parse(JSON.stringify(prevFindings)),
- finding_statuses: {},
- ai_run_progress: { phase: "complete", updated_at: new Date().toISOString() },
- }).eq("id", r.id);
-
- queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
- setFindingStatuses({});
- setAiCompleteFlash(findings.length);
- setTimeout(() => setAiCompleteFlash(null), 3500);
- } catch (err) {
- toast.error(err instanceof Error ? err.message : "AI check failed");
- await supabase.from("plan_reviews").update({
- ai_check_status: "error",
- ai_run_progress: { phase: "error", updated_at: new Date().toISOString(), error: err instanceof Error ? err.message : String(err) },
- }).eq("id", r.id);
- } finally {
- setAiPhase("idle");
- setAiRunning(false);
- setResumingFromOtherTab(false);
- }
- };
-
- const createNewRound = async () => {
- if (!review || !allRounds) return;
- if (review.pipeline_version === "v2") {
-  toast.error("New rounds for V2 reviews must be created from the V2 dashboard so deficiencies_v2 carries forward correctly.");
-  return;
- }
- try {
- const maxRound = allRounds.reduce((max, r) => Math.max(max, r.round), 0);
- const { data: newReview, error } = await supabase
- .from("plan_reviews")
- .insert({
- project_id: review.project_id,
- round: maxRound + 1,
- file_urls: review.file_urls,
- previous_findings: JSON.parse(JSON.stringify(review.ai_findings || [])),
- })
- .select("id")
- .single();
- if (error) throw error;
-
- await supabase.from("projects").update({
- deadline_at: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString(),
- }).eq("id", review.project_id);
-
- toast.success(`Round ${maxRound + 1} created`);
- navigate(`/plan-review/${newReview.id}`);
- } catch (err) {
- toast.error(err instanceof Error ? err.message : "Failed to create new round");
- }
- };
+  const createNewRound = () => {
+    // New rounds belong on the v2 dashboard so deficiencies_v2 carries forward
+    // correctly. The dashboard owns the only writer of pipeline output.
+    if (!review) return;
+    navigate(`/plan-review/${review.id}/dashboard`);
+  };
 
  const generateCommentLetter = async (r: PlanReviewRow) => {
  // Abort any in-flight letter generation before starting a new one.
@@ -946,9 +388,8 @@ export default function PlanReviewDetail() {
  trade_type: r.project?.trade_type,
  county: r.project?.county,
  jurisdiction: r.project?.jurisdiction,
-  // V2 reviews: ai_findings is empty; send the adapted V2 findings instead so
-  // the generated letter reflects the verified, dedup'd source-of-truth set.
-  findings: r.pipeline_version === "v2" ? (v2Findings ?? []) : r.ai_findings,
+          // Comment letter is generated from the verified, dedup'd v2 findings.
+          findings: v2Findings ?? [],
  round: r.round,
  },
  onDelta: (chunk) => setCommentLetter((prev) => prev + chunk),
@@ -1005,10 +446,8 @@ export default function PlanReviewDetail() {
  const tag = (e.target as HTMLElement)?.tagName;
  if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
  if (e.metaKey || e.ctrlKey || e.altKey) return;
-  const findingsList = review?.pipeline_version === "v2"
-   ? (v2Findings ?? [])
-   : ((review?.ai_findings as Finding[] | undefined) || []);
-  if (findingsList.length === 0) return;
+      const findingsList = v2Findings ?? [];
+      if (findingsList.length === 0) return;
 
  const cur = activeFindingIndex;
  const last = findingsList.length - 1;
@@ -1087,10 +526,10 @@ export default function PlanReviewDetail() {
  );
  }
 
- // Source-of-truth selector: V2 reviews read adapted deficiencies_v2 rows;
- // legacy reviews keep reading ai_findings. v2Findings is undefined while loading,
- // which gracefully shows an empty findings list (skeleton-equivalent) until ready.
- const findings = isV2Pipeline ? (v2Findings ?? []) : ((review.ai_findings as Finding[]) || []);
+  // All findings come from deficiencies_v2 via the adapter. While the query is
+  // loading we render an empty list (skeleton-equivalent) so the page doesn't
+  // flash old data.
+  const findings = v2Findings ?? [];
  const previousFindings = (review.previous_findings as Finding[]) || [];
  const groupedFindings = groupFindingsByDiscipline(findings);
  const county = review.project?.county || "";
@@ -1200,86 +639,26 @@ export default function PlanReviewDetail() {
  round={review.round}
  reviewId={review.id}
  daysLeft={daysLeft}
- aiRunning={aiRunning}
- aiCompleteFlash={aiCompleteFlash}
- hasFindings={hasFindings}
- rounds={projectRounds}
- onBack={() => navigate("/plan-review")}
- onRunAICheck={() => runAICheck(review)}
- onNavigateRound={(rid) => navigate(`/plan-review/${rid}`)}
-  onNewRound={createNewRound}
- />
+        aiRunning={false}
+        aiCompleteFlash={null}
+        hasFindings={hasFindings}
+        rounds={projectRounds}
+        onBack={() => navigate("/plan-review")}
+        onRunAICheck={() => navigate(`/plan-review/${review.id}/dashboard`)}
+        onNavigateRound={(rid) => navigate(`/plan-review/${rid}`)}
+        onNewRound={createNewRound}
+      />
 
-  {/* ── V2 pipeline banner: viewer renders adapted V2 findings; mutating actions
-       (Run AI Check, New Round, pin reposition) are gated and routed to the
-       V2 dashboard so we never split the source of truth. ── */}
-  {isV2Pipeline && (
-   <div className="shrink-0 border-b border-primary/20 bg-primary/5 px-4 py-2 flex items-center justify-between gap-3">
-    <div className="flex items-center gap-2 min-w-0">
-     <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-     <span className="text-2xs font-semibold uppercase tracking-wide text-primary">V2 Pipeline</span>
-     <span className="text-xs text-muted-foreground truncate">
-      {v2Findings === undefined
-       ? "Loading verified findings from the V2 pipeline…"
-       : `${v2Findings.length} verified finding${v2Findings.length === 1 ? "" : "s"} loaded. Run pipeline, dispositions, and deferred scope live on the dashboard.`}
-     </span>
-    </div>
-    <Button size="sm" variant="default" onClick={() => navigate(`/plan-review/${review.id}/dashboard`)} className="shrink-0 h-7 text-xs">
-     Open V2 Dashboard
-    </Button>
-   </div>
-  )}
-
- {/* ── Resume banner: another tab is mid-run on this review ── */}
- {resumingFromOtherTab && !aiRunning && (
- <div className="shrink-0 border-b bg-accent/10 px-4 py-1.5 flex items-center gap-2">
- <Loader2 className="h-3 w-3 text-accent animate-spin" />
- <span className="text-2xs font-semibold text-accent uppercase tracking-wide">Resuming review</span>
- <span className="text-xs text-foreground/80">
- Another session is analyzing these plans ({aiPhase}). Findings will appear here automatically.
- </span>
- </div>
- )}
-
- {/* ── Page-cap banner: surface silent 10-page truncation honestly ── */}
- {!aiRunning && pageCapInfo && pageCapInfo.total > pageCapInfo.rendered && (
- <div className="shrink-0 border-b bg-warning/10 px-4 py-1.5 flex items-center gap-2">
- <span className="text-2xs font-semibold text-warning uppercase tracking-wide">Limited review</span>
- <span className="text-xs text-foreground/80">
- Reviewing the first <strong>{pageCapInfo.rendered}</strong> of <strong>{pageCapInfo.total}</strong> sheet{pageCapInfo.total !== 1 ? "s" : ""}.
- Findings on later sheets cannot be detected by AI in this round.
- </span>
- </div>
- )}
-
- {/* ── AI Scanning Overlay ── */}
- {aiRunning && (
- <div className="shrink-0 border-b bg-accent/5 px-4 py-3">
- <div className="max-w-lg space-y-2">
- {/* Real per-phase progress: shows the user we're not frozen. */}
- <div className="flex items-center gap-2">
- <Loader2 className="h-3.5 w-3.5 text-accent animate-spin shrink-0" />
- <p className="text-xs text-accent font-medium">
- {aiPhase === "rendering" && (
- pageCapInfo
- ? `Rendering ${pageCapInfo.rendered} sheet${pageCapInfo.rendered !== 1 ? "s" : ""} for analysis…`
- : "Rendering plan pages…"
- )}
- {aiPhase === "extracting_text" && "Extracting text + dimensions from PDF vector layer…"}
- {aiPhase === "vision" && "Running visual code review (this may take 60–120s)…"}
- {aiPhase === "validating" && "Snapping pins to actual callouts and validating findings…"}
- {aiPhase === "refining" && "Re-analyzing low-confidence pins at 2× zoom for precision…"}
- {aiPhase === "saving" && "Saving findings…"}
- {aiPhase === "idle" && "Preparing analysis…"}
- </p>
- </div>
- {renderingPages && (
- <Progress value={renderProgress} className="h-1" />
- )}
- <ScanTimeline currentStep={scanStep} />
- </div>
- </div>
- )}
+      {/* ── Page-cap banner: surface silent 10-page truncation honestly ── */}
+      {pageCapInfo && pageCapInfo.total > pageCapInfo.rendered && (
+        <div className="shrink-0 border-b bg-warning/10 px-4 py-1.5 flex items-center gap-2">
+          <span className="text-2xs font-semibold text-warning uppercase tracking-wide">Limited review</span>
+          <span className="text-xs text-foreground/80">
+            Reviewing the first <strong>{pageCapInfo.rendered}</strong> of <strong>{pageCapInfo.total}</strong> sheet{pageCapInfo.total !== 1 ? "s" : ""}.
+            Findings on later sheets cannot be detected by AI in this round.
+          </span>
+        </div>
+      )}
 
  {/* ── Main Split Layout ── */}
  {isMobile ? (
@@ -1335,13 +714,13 @@ export default function PlanReviewDetail() {
  <div className="overflow-y-auto">
  {rightPanel === "findings" && (
  <div className="p-3 space-y-2">
- {!hasFindings && !aiRunning && (
- <div className="flex flex-col items-center justify-center py-12 px-4">
- {hasDocuments ? (
- <div className="text-center space-y-3 max-w-[220px]">
- <div className="mx-auto w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center"><Sparkles className="h-5 w-5 text-accent" /></div>
- <p className="text-sm font-medium">Ready to analyze</p>
- <Button size="sm" onClick={() => runAICheck(review)} className="w-full"><Sparkles className="h-3.5 w-3.5 mr-1.5" /> Analyze Plans</Button>
+  {!hasFindings && (
+  <div className="flex flex-col items-center justify-center py-12 px-4">
+  {hasDocuments ? (
+  <div className="text-center space-y-3 max-w-[220px]">
+  <div className="mx-auto w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center"><Sparkles className="h-5 w-5 text-accent" /></div>
+  <p className="text-sm font-medium">Ready to analyze</p>
+  <Button size="sm" onClick={() => navigate(`/plan-review/${review.id}/dashboard`)} className="w-full"><Sparkles className="h-3.5 w-3.5 mr-1.5" /> Open Dashboard</Button>
  </div>
  ) : (
  <div className="text-center space-y-2"><Upload className="h-8 w-8 text-muted-foreground/20 mx-auto" /><p className="text-sm text-muted-foreground">Upload documents to begin</p></div>
@@ -1495,22 +874,22 @@ export default function PlanReviewDetail() {
  <div className="flex-1 overflow-y-auto">
  {rightPanel === "findings" && (
  <div className="p-3 space-y-2">
- {!hasFindings && !aiRunning && (
- <div className="flex flex-col items-center justify-center py-12 px-4">
- {hasDocuments ? (
- <div className="text-center space-y-3 max-w-[220px]">
- <div className="mx-auto w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
- <Sparkles className="h-5 w-5 text-accent" />
- </div>
- <p className="text-sm font-medium">Ready to analyze</p>
- <p className="text-xs text-muted-foreground">{fileUrls.length} document{fileUrls.length > 1 ? "s" : ""} loaded</p>
- <Button
- size="sm"
- onClick={() => runAICheck(review)}
- className="w-full"
- >
- <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Analyze Plans
- </Button>
+  {!hasFindings && (
+  <div className="flex flex-col items-center justify-center py-12 px-4">
+  {hasDocuments ? (
+  <div className="text-center space-y-3 max-w-[220px]">
+  <div className="mx-auto w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
+  <Sparkles className="h-5 w-5 text-accent" />
+  </div>
+  <p className="text-sm font-medium">Ready to analyze</p>
+  <p className="text-xs text-muted-foreground">{fileUrls.length} document{fileUrls.length > 1 ? "s" : ""} loaded</p>
+  <Button
+  size="sm"
+  onClick={() => navigate(`/plan-review/${review.id}/dashboard`)}
+  className="w-full"
+  >
+  <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Open Dashboard
+  </Button>
  </div>
  ) : (
  <div className="text-center space-y-2">

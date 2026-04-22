@@ -93,8 +93,8 @@ export interface PlanReviewRow {
   qc_reviewer_id?: string | null;
   qc_notes?: string;
   reviewer_id?: string | null;
-  /** Defaults to 'v2'. Legacy 'v1' rows are backfilled into deficiencies_v2.
-   *  The viewer reads via adaptV2ToFindings() and disables write paths that
-   *  mutate ai_findings (run AI check, new round, pin reposition). */
+  /** @deprecated Always 'v2'. The v1 in-page runner has been retired; the
+   *  /dashboard route is now the sole orchestrator and writes deficiencies_v2.
+   *  Field kept for backward-compat with existing query selects. */
   pipeline_version?: string;
 }
