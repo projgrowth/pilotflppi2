@@ -1,100 +1,92 @@
 
 
-# Plan Review Cleanup Wave
+# Plan Review Cleanup — Wave 2
 
-Four targeted refactors to tighten the dashboard, share logic across surfaces, and shrink the largest component. No behavior regressions — every change preserves what's currently shown, just packaged better.
+Three changes, sequenced so each one shrinks the surface area for the next. All preserve current behavior.
 
-## 1. Consolidate dashboard banners into one "Review Health" strip
+## 1. Live deficiency stream on the dashboard
 
-Today `ReviewDashboard.tsx` stacks five full-width cards before the tabs even appear:
+Today the pipeline writes to `deficiencies_v2` over 2–3 minutes, but the dashboard only refetches when the user clicks a tab or React Query stale-times out. Reviewers stare at "Discipline Review running…" with zero visible progress.
 
-```text
-ReviewStatusBar      (pipeline stage progress)
-VerificationBanner   (X upheld · Y overturned · Z modified)
-ReviewerMemoryCard   (N learned corrections applied)
-CrossCheckBanner     (cross-discipline conflicts)
-ReviewSummaryHeader  (project name / address / jurisdiction)
-```
-
-Replace with a single `ReviewHealthStrip` component — one bordered card, two rows:
-
-- **Row 1 (always visible)**: project name · address · jurisdiction · current pipeline stage chip · status pill (moves down from the page header).
-- **Row 2 (compact metric chips)**: `Verification 47/8/3` · `Memory 23 applied` · `Cross-check 2 conflicts` · `Pipeline ▸ verify`. Each chip is a `Popover` trigger — click to expand the full banner content inline. Conflict/overturned counts > 0 get an amber accent border (per Core memory rule: static accent, no animation).
-
-Cuts ~600px of vertical real estate on first paint. Tabs land above the fold on a 1213px viewport.
-
-## 2. Split `DeficiencyCard.tsx` into focused sub-components
-
-Current file is ~500 lines mixing display, evidence collapsibles, rejection dialog wiring, and PDF deep-link logic. Split into:
+Add a realtime subscription mirroring the existing `review_pipeline_status` one:
 
 ```text
-src/components/review-dashboard/deficiency/
-  DeficiencyCard.tsx         (orchestrator, ~80 lines)
-  DeficiencyHeader.tsx       (def number, badges, confidence, sheet chips, "Open Sheet →")
-  DeficiencyEvidence.tsx     (Collapsible: evidence[], confidence_basis)
-  DeficiencyActions.tsx      (Confirm / Reject / Modify buttons + dialog wiring)
+src/hooks/useReviewDashboard.ts
+  useDeficienciesV2(planReviewId) → already exists
+  + subscribe to postgres_changes on deficiencies_v2 filtered by plan_review_id
+  + on INSERT/UPDATE/DELETE → qc.invalidateQueries(["deficiencies_v2", planReviewId])
+
+  useDeferredScopeItems(planReviewId)
+  + same treatment, filtered by plan_review_id
 ```
 
-Each piece receives `def: DeficiencyV2Row` plus narrow callbacks. Pure presentational where possible. Existing `DeficiencyCard` import path stays the same (re-export from the new orchestrator) so no other files need to change.
+DB migration: `ALTER PUBLICATION supabase_realtime ADD TABLE public.deficiencies_v2, public.deferred_scope_items;` plus `REPLICA IDENTITY FULL` on both so deletes carry the row.
 
-## 3. Extract shared filter/sort logic into `useFilteredDeficiencies`
+Result: as each discipline expert finishes, its findings appear in the list in real time. No polling, no manual refresh. Same pattern already proven for the pipeline stepper.
 
-Right now `DeficiencyList.tsx` hides overturned items and sorts by severity → human-review → confidence. `HumanReviewQueue.tsx` does its own filtering and ordering. The two will drift.
+## 2. Retire the v1 pipeline branch
 
-Create `src/hooks/useFilteredDeficiencies.ts`:
+Database confirms only 8 plan_reviews still have `pipeline_version = 'v1'`. Every code path now carries dead weight:
 
-```ts
-useFilteredDeficiencies(planReviewId, {
-  hideOverturned?: boolean,        // default true
-  onlyHumanReview?: boolean,       // default false
-  groupBy?: 'discipline' | 'none', // default 'discipline'
-})
-```
+- `PlanReviewDetail.tsx` (1721 lines) has `runAICheck`, finding-status JSONB writes, pin reposition, "new round" — all gated on `pipeline_version === 'v1'`. Roughly 600 lines.
+- `deficiency-adapter.ts` exists only because v1 reads `ai_findings` and v2 reads `deficiencies_v2`.
+- `ProjectDetail.tsx` counts findings off `ai_findings`.
 
-Returns `{ items, grouped, counts: { total, hidden, humanReview } }`. Both `DeficiencyList` and `HumanReviewQueue` consume it. Sort logic (`severityRank`, `compareDefs`) moves into the hook file as pure helpers — unit-testable.
+Approach:
 
-## 4. Extract `determineStatus()` to `src/lib/review-status.ts`
+a. **Backfill migration**: for the 8 v1 reviews, create empty `deficiencies_v2` rows from their `ai_findings` JSONB so nothing visually disappears, then flip `pipeline_version = 'v2'`.
+b. **Code purge**: delete the v1 branches in `PlanReviewDetail.tsx` (runAICheck, in-place finding edits, pin reposition writes to `ai_findings`, "new round" via legacy path). Replace with a "Run Pipeline" button that just calls the v2 edge function — same one the dashboard uses.
+c. **Adapter retirement**: `adaptV2ToFindings` keeps the old `Finding` shape for `PlanMarkupViewer`, `LetterPanel`, `SitePlanChecklist`, etc. — keep it, but it now has only one input source.
+d. **ProjectDetail**: count findings via `deficiencies_v2` instead of `ai_findings`.
 
-Currently lives at the bottom of `ReviewDashboard.tsx` and is called only there, but `county-report.ts` re-derives status from the same fields with subtly different logic. Move to:
+Net deletion: ~700 lines, one persistent source of confusion gone.
+
+## 3. Split `PlanReviewDetail.tsx` (1721 → ~400 line shell)
+
+Even after the v1 purge, the file mixes routing, data fetching, AI orchestration, PDF rendering, finding filters, comment-letter editing, lint, county checklist, and round comparison. Split into:
 
 ```text
-src/lib/review-status.ts
-  - determineReviewStatus(defs): ReviewStatus
-  - REVIEW_STATUS_LABELS: Record<ReviewStatus, { label, tone }>
-  - StatusPill component (moved from ReviewDashboard)
+src/pages/PlanReviewDetail.tsx              (shell + layout + tabs, ~400 lines)
+src/hooks/plan-review/
+  usePlanReviewData.ts          (review row + rounds + history queries)
+  useFindingFilters.ts          (status/severity/discipline/confidence filtering + URL sync)
+  useRunPipeline.ts             (Run Pipeline button → edge fn, progress, toasts)
+src/components/plan-review/
+  FindingsListPanel.tsx         (the right-hand findings tab body)
+  RoundsTimelinePanel.tsx       (round comparison drawer trigger + content)
 ```
 
-`county-report.ts` imports it so the report header and the dashboard pill can never disagree. `StatusPill` becomes shareable for the new health strip and any future surface (e.g. project list row).
+Pure refactor — same imports, same JSX output, same routes. Lets us iterate on individual concerns (e.g. finding filters) without scrolling 1700 lines.
 
-## Bonus polish included
+## Bonus polish bundled
 
-- `CrossCheckBanner` content collapses by default behind its chip in the new strip — only expands when count > 0 or user clicks.
-- Plan-viewer deep-link from `DeficiencyHeader` opens in the same tab when the user is already inside `/plan-review/:id`, new tab otherwise — fewer orphan tabs.
+- **Reviewer feels the AI working**: as part of #1, add a "N findings so far" counter chip on the pipeline stepper that ticks up live during `discipline_review`.
+- **Optimistic confirms**: when a reviewer clicks Confirm/Reject on a deficiency, mutate React Query cache immediately, then send the DB write — the realtime echo from #1 reconciles. Removes the 200ms "did it save?" pause on every triage click.
+- **`pipeline_version` column dropped** from `plan_reviews` once the 8 legacy rows are flipped — schema reflects reality.
 
 ## Files
 
 **New**
-- `src/components/review-dashboard/ReviewHealthStrip.tsx`
-- `src/components/review-dashboard/deficiency/DeficiencyHeader.tsx`
-- `src/components/review-dashboard/deficiency/DeficiencyEvidence.tsx`
-- `src/components/review-dashboard/deficiency/DeficiencyActions.tsx`
-- `src/hooks/useFilteredDeficiencies.ts`
-- `src/lib/review-status.ts`
+- `src/hooks/plan-review/usePlanReviewData.ts`
+- `src/hooks/plan-review/useFindingFilters.ts`
+- `src/hooks/plan-review/useRunPipeline.ts`
+- `src/components/plan-review/FindingsListPanel.tsx`
+- `src/components/plan-review/RoundsTimelinePanel.tsx`
+- Migration: `add_realtime_deficiencies_v2.sql` + `drop_pipeline_version.sql`
 
 **Modified**
-- `src/pages/ReviewDashboard.tsx` — replace 5 banners with `<ReviewHealthStrip>`, import status from new lib
-- `src/components/review-dashboard/DeficiencyCard.tsx` — slim orchestrator, re-exports unchanged
-- `src/components/review-dashboard/DeficiencyList.tsx` — consume `useFilteredDeficiencies`
-- `src/components/review-dashboard/HumanReviewQueue.tsx` — consume `useFilteredDeficiencies`
-- `src/lib/county-report.ts` — import `determineReviewStatus` instead of local copy
+- `src/hooks/useReviewDashboard.ts` — realtime subscriptions on `deficiencies_v2` + `deferred_scope_items`; optimistic mutation helpers
+- `src/pages/PlanReviewDetail.tsx` — purge v1 branches, extract panels/hooks, ~400 lines
+- `src/pages/ProjectDetail.tsx` — count findings from `deficiencies_v2`
+- `src/lib/deficiency-adapter.ts` — drop the v1 input branch, simplify
+- `src/types/index.ts` — drop `pipeline_version` from `PlanReviewRow`
 
-**Untouched** (intentionally — still mounted inside the new strip's popovers)
-- `ReviewStatusBar.tsx`, `VerificationBanner.tsx`, `ReviewerMemoryCard.tsx`, `CrossCheckBanner.tsx`, `ReviewSummaryHeader.tsx`
+**Deleted (after v1 backfill)**
+- All `if (pipeline_version === 'v1')` blocks across `PlanReviewDetail.tsx` and the legacy `runAICheck` orchestration
 
 ## What the user sees
 
-- Dashboard opens with tabs visible above the fold instead of after a wall of banners.
-- Same information, one click away inside metric chips.
-- Deficiency cards render identically but are now half the file size each — faster to iterate on.
-- Status pill on the dashboard and status text in the generated PDF report can never disagree again.
+- Open a fresh review, click Run Pipeline → deficiencies pop into the list one by one as each discipline expert finishes, like a chat completion. No more "running… running… DONE 47 findings appear at once."
+- Confirm/Reject feels instant.
+- Codebase has one pipeline, one source of truth, one detail page that fits in a screen.
 
