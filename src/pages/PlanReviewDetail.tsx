@@ -127,6 +127,7 @@ export default function PlanReviewDetail() {
  enabled: !!review?.project_id,
  });
 
+ const isV2Pipeline = review?.pipeline_version === "v2";
  // ── Findings live in deficiencies_v2 (verified, dedup'd, with human-review
  // flags). We adapt them down to the legacy Finding shape so the existing PDF
  // viewer, comment letter, lint, and SitePlanChecklist all consume V2 data
