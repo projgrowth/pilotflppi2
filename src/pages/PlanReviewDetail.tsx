@@ -127,184 +127,120 @@ export default function PlanReviewDetail() {
  enabled: !!review?.project_id,
  });
 
- const isV2Pipeline = review?.pipeline_version === "v2";
- // ── Findings live in deficiencies_v2 (verified, dedup'd, with human-review
- // flags). We adapt them down to the legacy Finding shape so the existing PDF
- // viewer, comment letter, lint, and SitePlanChecklist all consume V2 data
- // without bespoke V2 components. The legacy ai_findings JSONB on plan_reviews
- // is read-only fallback for very old rows; nothing writes to it anymore.
- const { data: v2Findings } = useQuery({
-  queryKey: ["v2-findings-for-viewer", review?.id],
-  enabled: !!review?.id,
-  queryFn: async () => {
-   const { data, error } = await supabase
-    .from("deficiencies_v2")
-    .select(
-     "id, def_number, discipline, finding, required_action, sheet_refs, code_reference, evidence, confidence_score, confidence_basis, priority, life_safety_flag, permit_blocker, liability_flag, requires_human_review, human_review_reason, verification_status, status, model_version",
-    )
-    .eq("plan_review_id", review!.id)
-    .order("def_number", { ascending: true });
-   if (error) throw error;
-   return adaptV2ToFindings((data ?? []) as DeficiencyV2Lite[]);
-  },
- });
+  // Findings live in deficiencies_v2 (verified, dedup'd, with human-review
+  // flags). The adapter shapes them into the legacy Finding interface so the
+  // existing PDF viewer, comment letter, lint, and SitePlanChecklist consume
+  // V2 data without bespoke V2 components. Nothing writes to ai_findings
+  // anymore — pipeline runs, dispositions, and new rounds happen on the
+  // /dashboard route, which is the sole writer of deficiencies_v2.
+  const { data: v2Findings } = useQuery({
+    queryKey: ["v2-findings-for-viewer", review?.id],
+    enabled: !!review?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("deficiencies_v2")
+        .select(
+          "id, def_number, discipline, finding, required_action, sheet_refs, code_reference, evidence, confidence_score, confidence_basis, priority, life_safety_flag, permit_blocker, liability_flag, requires_human_review, human_review_reason, verification_status, status, model_version",
+        )
+        .eq("plan_review_id", review!.id)
+        .order("def_number", { ascending: true });
+      if (error) throw error;
+      return adaptV2ToFindings((data ?? []) as DeficiencyV2Lite[]);
+    },
+  });
 
- const [aiRunning, setAiRunning] = useState(false);
- const [scanStep, setScanStep] = useState(0);
- const [commentLetter, setCommentLetter] = useState("");
- const [generatingLetter, setGeneratingLetter] = useState(false);
- const letterAbortRef = useRef<AbortController | null>(null);
- const [copied, setCopied] = useState(false);
- const [uploading, setUploading] = useState(false);
- const [rightPanel, setRightPanel] = useState<RightPanelMode>("findings");
- const fileInputRef = useRef<HTMLInputElement>(null);
- const [activeFindingIndex, setActiveFindingIndex] = useState<number | null>(null);
- const [pageImages, setPageImages] = useState<PDFPageImage[]>([]);
- const [pageTextItems, setPageTextItems] = useState<PDFTextItem[][]>([]);
- /** {totalSheets, renderedSheets} — populated after we open the PDFs. Used to show the "Reviewing first 10 of N" banner. */
- const [pageCapInfo, setPageCapInfo] = useState<{ total: number; rendered: number } | null>(null);
- /** Discrete AI run phase — drives the live step indicator instead of a generic spinner. */
- const [aiPhase, setAiPhase] = useState<"idle" | "rendering" | "extracting_text" | "vision" | "validating" | "refining" | "saving">("idle");
- const [renderingPages, setRenderingPages] = useState(false);
- const [renderProgress, setRenderProgress] = useState(0);
- const findingRefs = useRef<Map<number, HTMLDivElement>>(new Map());
- const [findingStatuses, setFindingStatuses] = useState<Record<number, FindingStatus>>({});
- const [statusFilter, setStatusFilter] = useState<FindingStatus | "all">("all");
- const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all");
- const [disciplineFilter, setDisciplineFilter] = useState<string | "all">("all");
- const [sheetFilter, setSheetFilter] = useState<string | "all">("all");
- const [showDiff, setShowDiff] = useState(false);
- const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
- const [aiCompleteFlash, setAiCompleteFlash] = useState<number | null>(null);
- const [uploadSuccess, setUploadSuccess] = useState(false);
- const [repositioningIndex, setRepositioningIndex] = useState<number | null>(null);
- /** True when we detected another tab is mid-run on this review and we're showing
- * a "Resuming…" banner backed by realtime. Disables the "Run AI Check" button. */
- const [resumingFromOtherTab, setResumingFromOtherTab] = useState(false);
- const [showShortcuts, setShowShortcuts] = useState(false);
- const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
- const [showLintDialog, setShowLintDialog] = useState(false);
- const letterHydratedRef = useRef<string | null>(null);
+  // Realtime: as the v2 pipeline writes new findings, refetch so the viewer
+  // streams them in (same pattern as the dashboard).
+  useEffect(() => {
+    if (!review?.id) return;
+    const channel = supabase
+      .channel(`plan-review-detail-defs-${review.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "deficiencies_v2", filter: `plan_review_id=eq.${review.id}` },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["v2-findings-for-viewer", review.id] });
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [review?.id, queryClient]);
 
- // Autosave the comment letter to the review row, debounced.
- const { state: autosaveState, lastSavedAt, dirty: letterDirty } = useLetterAutosave(
-  review?.id,
-  commentLetter,
-  !generatingLetter,
- );
+  const [commentLetter, setCommentLetter] = useState("");
+  const [generatingLetter, setGeneratingLetter] = useState(false);
+  const letterAbortRef = useRef<AbortController | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [rightPanel, setRightPanel] = useState<RightPanelMode>("findings");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeFindingIndex, setActiveFindingIndex] = useState<number | null>(null);
+  const [pageImages, setPageImages] = useState<PDFPageImage[]>([]);
+  /** {totalSheets, renderedSheets} — populated after we open the PDFs. Used to show the "Reviewing first 10 of N" banner. */
+  const [pageCapInfo, setPageCapInfo] = useState<{ total: number; rendered: number } | null>(null);
+  const [renderingPages, setRenderingPages] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
+  const findingRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [findingStatuses, setFindingStatuses] = useState<Record<number, FindingStatus>>({});
+  const [statusFilter, setStatusFilter] = useState<FindingStatus | "all">("all");
+  const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all");
+  const [disciplineFilter, setDisciplineFilter] = useState<string | "all">("all");
+  const [sheetFilter, setSheetFilter] = useState<string | "all">("all");
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [repositioningIndex, setRepositioningIndex] = useState<number | null>(null);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
+  const [showLintDialog, setShowLintDialog] = useState(false);
+  const letterHydratedRef = useRef<string | null>(null);
 
- // Hydrate the letter draft once per review id (don't clobber in-flight stream).
- useEffect(() => {
-  if (!review) return;
-  if (letterHydratedRef.current === review.id) return;
-  letterHydratedRef.current = review.id;
-  const draft = (review as { comment_letter_draft?: string }).comment_letter_draft;
-  if (typeof draft === "string" && draft.length > 0) {
-   setCommentLetter(draft);
-  }
- }, [review?.id]);
+  // Autosave the comment letter to the review row, debounced.
+  const { state: autosaveState, lastSavedAt, dirty: letterDirty } = useLetterAutosave(
+    review?.id,
+    commentLetter,
+    !generatingLetter,
+  );
 
- /** Persist a phase transition so a fresh tab can show a "Resuming…" banner if
- * the user closes the original. Best-effort — never fails the run. */
- const writeAiProgress = useCallback(async (
- reviewId: string,
- phase: string,
- extra: Record<string, unknown> = {}
- ) => {
- try {
- await supabase.from("plan_reviews").update({
- ai_run_progress: { phase, updated_at: new Date().toISOString(), ...extra },
- }).eq("id", reviewId);
- } catch {
- // Swallow — progress writes must never break the AI run itself.
- }
- }, []);
+  // Hydrate the letter draft once per review id (don't clobber in-flight stream).
+  useEffect(() => {
+    if (!review) return;
+    if (letterHydratedRef.current === review.id) return;
+    letterHydratedRef.current = review.id;
+    const draft = (review as { comment_letter_draft?: string }).comment_letter_draft;
+    if (typeof draft === "string" && draft.length > 0) {
+      setCommentLetter(draft);
+    }
+  }, [review?.id]);
 
- const handleRepositionConfirm = useCallback(async (_idx: number, _newMarkup: { page_index: number; x: number; y: number; width: number; height: number }) => {
-  // Findings now live in deficiencies_v2 and reference sheets, not pixel
-  // coordinates. Pin repositioning isn't yet supported on the v2 source of
-  // truth — fail loud rather than silently writing to a dead JSONB column.
-  void _idx;
-  void _newMarkup;
-  toast.error("Pin repositioning isn't available — findings now reference sheets, not pixel coordinates.");
-  setRepositioningIndex(null);
- }, []);
+  const handleRepositionConfirm = useCallback(async (_idx: number, _newMarkup: { page_index: number; x: number; y: number; width: number; height: number }) => {
+    // Findings now live in deficiencies_v2 and reference sheets, not pixel
+    // coordinates. Pin repositioning isn't supported on the v2 source of
+    // truth — fail loud rather than silently writing to a dead JSONB column.
+    void _idx;
+    void _newMarkup;
+    toast.error("Pin repositioning isn't available — findings now reference sheets, not pixel coordinates.");
+    setRepositioningIndex(null);
+  }, []);
 
- useEffect(() => {
- if (review?.finding_statuses) {
- const loaded: Record<number, FindingStatus> = {};
- for (const [k, v] of Object.entries(review.finding_statuses as Record<string, string>)) {
- loaded[Number(k)] = v as FindingStatus;
- }
- setFindingStatuses(loaded);
- } else {
- setFindingStatuses({});
- }
- }, [review?.id]);
+  useEffect(() => {
+    if (review?.finding_statuses) {
+      const loaded: Record<number, FindingStatus> = {};
+      for (const [k, v] of Object.entries(review.finding_statuses as Record<string, string>)) {
+        loaded[Number(k)] = v as FindingStatus;
+      }
+      setFindingStatuses(loaded);
+    } else {
+      setFindingStatuses({});
+    }
+  }, [review?.id]);
 
- // Auto-render pages when review loads with files
- const hasAutoRendered = useRef(false);
- useEffect(() => {
- if (review && review.file_urls?.length > 0 && pageImages.length === 0 && !renderingPages && !hasAutoRendered.current) {
- hasAutoRendered.current = true;
- renderDocumentPages(review);
- }
- }, [review]);
-
- // Pipeline auto-trigger removed: the v2 dashboard owns pipeline orchestration
- // via the "Run Pipeline" button. The legacy v1 auto-runner is intentionally
- // disabled to prevent it from writing to ai_findings and creating a second
- // source of truth that disagrees with deficiencies_v2.
-
- // ── Cross-tab resume: if this review is already "running" elsewhere AND its
- // ai_run_progress was updated within the last 2 minutes, treat it as a live
- // run owned by another tab. Subscribe to realtime updates so we mirror its
- // phase indicator, and disable the local "Run AI Check" button to prevent
- // double-spending Lovable AI credits. After 2 min of silence we assume the
- // run is dead and let the user re-trigger.
- useEffect(() => {
- if (!review || review.ai_check_status !== "running") {
- setResumingFromOtherTab(false);
- return;
- }
- if (aiRunning) return; // We're the owner — nothing to resume.
- const progress = (review as { ai_run_progress?: { phase?: string; updated_at?: string } }).ai_run_progress;
- const updatedAt = progress?.updated_at ? new Date(progress.updated_at).getTime() : 0;
- const fresh = updatedAt && Date.now() - updatedAt < 2 * 60 * 1000;
- if (!fresh) {
- setResumingFromOtherTab(false);
- return;
- }
- setResumingFromOtherTab(true);
- if (progress?.phase && progress.phase !== "complete" && progress.phase !== "error") {
- setAiPhase(progress.phase as typeof aiPhase);
- }
-
- const channel = supabase
- .channel(`plan-review-${review.id}`)
- .on(
- "postgres_changes",
- { event: "UPDATE", schema: "public", table: "plan_reviews", filter: `id=eq.${review.id}` },
- (payload) => {
- const next = payload.new as { ai_check_status?: string; ai_run_progress?: { phase?: string } };
- if (next.ai_run_progress?.phase) {
- const ph = next.ai_run_progress.phase;
- if (ph !== "complete" && ph !== "error") {
- setAiPhase(ph as typeof aiPhase);
- }
- }
- if (next.ai_check_status && next.ai_check_status !== "running") {
- // Other tab finished — refresh and exit resume mode.
- setResumingFromOtherTab(false);
- setAiPhase("idle");
- queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
- }
- }
- )
- .subscribe();
-
- return () => { supabase.removeChannel(channel); };
- }, [review?.id, review?.ai_check_status, aiRunning, id, queryClient]);
+  // Auto-render pages when review loads with files
+  const hasAutoRendered = useRef(false);
+  useEffect(() => {
+    if (review && review.file_urls?.length > 0 && pageImages.length === 0 && !renderingPages && !hasAutoRendered.current) {
+      hasAutoRendered.current = true;
+      renderDocumentPages(review);
+    }
+  }, [review]);
 
 
  const statusSaveTimer = useRef<NodeJS.Timeout | null>(null);
