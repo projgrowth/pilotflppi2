@@ -480,16 +480,11 @@ export default function PlanReviewDetail() {
  const base64s = await renderPDFPagesForVisionWithGrid(file, 10, 220);
  visionImages.push(...base64s);
  }
- const runAICheck = async (_r: PlanReviewRow) => {
-  // Legacy v1 entry point — kept as a stub so existing call sites compile but
-  // never executes its old vision/extract/refine path. Reviewers should use
-  // "Run Pipeline" on the v2 dashboard, which is the only writer for
-  // deficiencies_v2.
-  void _r;
-  toast.error("Use 'Run Pipeline' on the dashboard. The legacy in-page runner is retired.");
- };
- void runAICheck;
- const _legacyRunAICheckSuppressed = async (r: PlanReviewRow) => {
+ const runAICheck = async (r: PlanReviewRow) => {
+  // Legacy in-page AI runner — kept for the auto-trigger that has been
+  // removed above. Reviewers should use "Run Pipeline" on the v2 dashboard,
+  // which is the only writer for deficiencies_v2. Body retained for now in
+  // case any leftover row needs it; will be deleted in a follow-up cleanup.
  setAiRunning(true);
  setRightPanel("findings");
  setActiveFindingIndex(null);
