@@ -1,0 +1,114 @@
+/**
+ * Data layer for the plan-review detail page.
+ *
+ * Encapsulates the three queries the page needs:
+ *  1. The review row (with embedded project + contractor)
+ *  2. All sibling rounds for the project (with their findings counts)
+ *  3. The v2 findings stream (with realtime subscription that refetches as
+ *     the pipeline writes new deficiencies)
+ *
+ * Keeping these together means the page shell never touches Supabase directly.
+ */
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { adaptV2ToFindings, type DeficiencyV2Lite } from "@/lib/deficiency-adapter";
+import type { PlanReviewRow } from "@/types";
+import type { Finding } from "@/components/FindingCard";
+
+export interface RoundSummary {
+  id: string;
+  round: number;
+  created_at: string;
+  ai_check_status: string;
+  findings_count: number;
+}
+
+export function usePlanReviewData(reviewId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  const reviewQuery = useQuery({
+    queryKey: ["plan-review", reviewId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("plan_reviews")
+        .select(
+          "*, project:projects(id, name, address, trade_type, county, jurisdiction, contractor:contractors(id, name, email, phone, license_number))",
+        )
+        .eq("id", reviewId!)
+        .single();
+      if (error) throw error;
+      return data as PlanReviewRow;
+    },
+    enabled: !!reviewId,
+  });
+
+  const review = reviewQuery.data;
+
+  const roundsQuery = useQuery({
+    queryKey: ["plan-review-rounds", review?.project_id],
+    queryFn: async (): Promise<RoundSummary[]> => {
+      const { data, error } = await supabase
+        .from("plan_reviews")
+        .select("id, round, created_at, ai_check_status")
+        .eq("project_id", review!.project_id)
+        .order("round");
+      if (error) throw error;
+      const ids = (data || []).map((r) => r.id);
+      if (ids.length === 0) return (data || []).map((r) => ({ ...r, findings_count: 0 }));
+      const { data: defs } = await supabase
+        .from("deficiencies_v2")
+        .select("plan_review_id")
+        .in("plan_review_id", ids);
+      const counts = new Map<string, number>();
+      (defs || []).forEach((d) => counts.set(d.plan_review_id, (counts.get(d.plan_review_id) || 0) + 1));
+      return (data || []).map((r) => ({ ...r, findings_count: counts.get(r.id) || 0 }));
+    },
+    enabled: !!review?.project_id,
+  });
+
+  // Findings live in deficiencies_v2 (verified, dedup'd, with human-review
+  // flags). The adapter shapes them into the legacy Finding interface so the
+  // existing viewer / letter / checklists consume v2 data unchanged.
+  const findingsQuery = useQuery<Finding[]>({
+    queryKey: ["v2-findings-for-viewer", review?.id],
+    enabled: !!review?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("deficiencies_v2")
+        .select(
+          "id, def_number, discipline, finding, required_action, sheet_refs, code_reference, evidence, confidence_score, confidence_basis, priority, life_safety_flag, permit_blocker, liability_flag, requires_human_review, human_review_reason, verification_status, status, model_version",
+        )
+        .eq("plan_review_id", review!.id)
+        .order("def_number", { ascending: true });
+      if (error) throw error;
+      return adaptV2ToFindings((data ?? []) as DeficiencyV2Lite[]);
+    },
+  });
+
+  // Realtime: as the pipeline writes new findings, refetch so the viewer
+  // streams them in (same pattern as the dashboard).
+  useEffect(() => {
+    if (!review?.id) return;
+    const channel = supabase
+      .channel(`plan-review-detail-defs-${review.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "deficiencies_v2", filter: `plan_review_id=eq.${review.id}` },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["v2-findings-for-viewer", review.id] });
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [review?.id, queryClient]);
+
+  return {
+    review,
+    isLoading: reviewQuery.isLoading,
+    rounds: roundsQuery.data ?? [],
+    findings: findingsQuery.data ?? [],
+  };
+}
