@@ -3,9 +3,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { callAI, streamAI } from "@/lib/ai";
-import { renderPDFPagesToImages, renderPDFPagesForVisionWithGrid, gridCellToCenter, extractPagesTextItems, snapToNearestText, getPDFPageCount, renderZoomCropForCell, type PDFPageImage, type PDFTextItem } from "@/lib/pdf-utils";
-import { chunkPromises } from "@/lib/utils";
+import { streamAI } from "@/lib/ai";
+import { renderPDFPagesToImages, getPDFPageCount, type PDFPageImage } from "@/lib/pdf-utils";
 import { useFirmSettings } from "@/hooks/useFirmSettings";
 import { useFindingHistory, logFindingStatusChange } from "@/hooks/useFindingHistory";
 import { useAuth } from "@/contexts/AuthContext";
@@ -25,26 +24,21 @@ import { ReviewTopBar } from "@/components/plan-review/ReviewTopBar";
 import { CountyPanel } from "@/components/plan-review/CountyPanel";
 import { LetterPanel } from "@/components/plan-review/LetterPanel";
 import { RightPanelTabs } from "@/components/plan-review/RightPanelTabs";
-import { KeyboardShortcutsOverlay } from "@/components/plan-review/KeyboardShortcutsOverlay";
-import { RoundDiffPanel } from "@/components/plan-review/RoundDiffPanel";
 import { LetterLintDialog } from "@/components/plan-review/LetterLintDialog";
 import { useConfirm } from "@/hooks/useConfirm";
 import { useLetterAutosave } from "@/hooks/useLetterAutosave";
-import { lintCommentLetter, hasBlockingIssues, type LintIssue } from "@/lib/letter-linter";
+import { lintCommentLetter, type LintIssue } from "@/lib/letter-linter";
 import { cn } from "@/lib/utils";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { FindingCard, type Finding } from "@/components/FindingCard";
 import { SeverityDonut } from "@/components/SeverityDonut";
-import { ScanTimeline } from "@/components/ScanTimeline";
 import { PlanMarkupViewer } from "@/components/PlanMarkupViewer";
 import { FindingStatusFilter, type FindingStatus } from "@/components/FindingStatusFilter";
 import { BulkTriageFilters, type ConfidenceFilter } from "@/components/BulkTriageFilters";
 import { DisciplineChecklist } from "@/components/DisciplineChecklist";
 import { SitePlanChecklist } from "@/components/SitePlanChecklist";
-import { getCountyRequirements } from "@/lib/county-requirements";
 import {
  isHVHZ, getDisciplineIcon, getDisciplineColor,
- getDisciplineLabel, DISCIPLINE_ORDER, SCANNING_STEPS,
+ getDisciplineLabel, DISCIPLINE_ORDER,
 } from "@/lib/county-utils";
 import type { PlanReviewRow } from "@/types";
 import { adaptV2ToFindings, type DeficiencyV2Lite } from "@/lib/deficiency-adapter";
