@@ -893,22 +893,22 @@ export default function PlanReviewDetail() {
  <div className="flex-1 overflow-y-auto">
  {rightPanel === "findings" && (
  <div className="p-3 space-y-2">
- {!hasFindings && !aiRunning && (
- <div className="flex flex-col items-center justify-center py-12 px-4">
- {hasDocuments ? (
- <div className="text-center space-y-3 max-w-[220px]">
- <div className="mx-auto w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
- <Sparkles className="h-5 w-5 text-accent" />
- </div>
- <p className="text-sm font-medium">Ready to analyze</p>
- <p className="text-xs text-muted-foreground">{fileUrls.length} document{fileUrls.length > 1 ? "s" : ""} loaded</p>
- <Button
- size="sm"
- onClick={() => runAICheck(review)}
- className="w-full"
- >
- <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Analyze Plans
- </Button>
+  {!hasFindings && (
+  <div className="flex flex-col items-center justify-center py-12 px-4">
+  {hasDocuments ? (
+  <div className="text-center space-y-3 max-w-[220px]">
+  <div className="mx-auto w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
+  <Sparkles className="h-5 w-5 text-accent" />
+  </div>
+  <p className="text-sm font-medium">Ready to analyze</p>
+  <p className="text-xs text-muted-foreground">{fileUrls.length} document{fileUrls.length > 1 ? "s" : ""} loaded</p>
+  <Button
+  size="sm"
+  onClick={() => navigate(`/plan-review/${review.id}/dashboard`)}
+  className="w-full"
+  >
+  <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Open Dashboard
+  </Button>
  </div>
  ) : (
  <div className="text-center space-y-2">
