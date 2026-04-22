@@ -296,6 +296,7 @@ ${items.map(({ finding, index }) => {
   ${finding.county_specific && countyAmendment ? `<p class="amendment-ref">Per ${countyAmendment.ref}: ${countyAmendment.description}</p>` : ""}
   <p>${finding.description}</p>
   <p class="recommendation"><strong>Required Action:</strong> ${finding.recommendation}</p>
+  ${finding.evidence_crop_url ? `<div class="evidence-crop"><img src="${finding.evidence_crop_url}" alt="Visual evidence — Sheet ${finding.page}" style="max-width:100%;border:1px solid #ccc;margin-top:6px" /></div>` : ""}
 </div>`;
 }).join('')}`;
 }).join('')}

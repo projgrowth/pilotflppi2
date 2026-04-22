@@ -65,6 +65,10 @@ export interface Finding {
    *  Surfaced inline under the "Why?" disclosure so building officials can see
    *  exactly the image evidence the model worked from. */
   crop_url?: string;
+  /** Optional pinned visual evidence crop (PNG URL in Storage). Embedded in
+   *  exported comment letters when present. Generated client-side by
+   *  EvidenceSnippet → "Pin to letter". */
+  evidence_crop_url?: string | null;
   /** Count of historical corrections matching this finding's code_ref — set
    *  client-side via useSimilarCorrections, NOT persisted. Drives the
    *  "Corrected N× before" badge that surfaces the learning loop to reviewers. */
