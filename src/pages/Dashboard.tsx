@@ -111,7 +111,7 @@ function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: P
               <tr
                 key={p.id}
                 className="hover:bg-muted/30 cursor-pointer transition-colors"
-                onClick={() => { const rid = latestReviews?.[p.id]; navigate(rid ? `/plan-review/${rid}` : `/review/${p.id}`); }}
+                onClick={() => { const rid = latestReviews?.[p.id]; navigate(rid ? `/plan-review/${rid}/dashboard` : `/review/${p.id}`); }}
               >
                 <td className="px-4 py-3">
                   <p className="font-medium truncate max-w-[200px]">{p.name}</p>
@@ -123,7 +123,7 @@ function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: P
                 <td className="px-4 py-3"><DaysActiveBadge days={p.daysActive} /></td>
                 <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View review" onClick={() => { const rid = latestReviews?.[p.id]; navigate(rid ? `/plan-review/${rid}` : `/review/${p.id}`); }}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View review" onClick={() => { const rid = latestReviews?.[p.id]; navigate(rid ? `/plan-review/${rid}/dashboard` : `/review/${p.id}`); }}>
                       <Eye className="h-3.5 w-3.5" />
                     </Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View project" onClick={() => navigate(`/projects/${p.id}`)}>

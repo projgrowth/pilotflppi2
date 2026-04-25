@@ -38,7 +38,7 @@ interface NavItem {
 const mainNav: NavItem[] = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { label: "Projects", path: "/projects", icon: FolderKanban },
-  { label: "Plan Review", path: "/review", icon: Search },
+  { label: "Start Review", path: "/review", icon: Search },
   { label: "Inspections", path: "/inspections", icon: ClipboardCheck },
   { label: "Documents", path: "/documents", icon: FileText },
   { label: "Invoices", path: "/invoices", icon: Receipt },
@@ -52,7 +52,7 @@ const mainNav: NavItem[] = [
 // Bottom tab bar items for mobile
 const bottomTabs: NavItem[] = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
-  { label: "Review", path: "/review", icon: Search },
+  { label: "Start", path: "/review", icon: Search },
   { label: "Inspections", path: "/inspections", icon: ClipboardCheck },
   { label: "Documents", path: "/documents", icon: FileText },
 ];

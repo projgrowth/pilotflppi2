@@ -541,7 +541,7 @@ export default function PlanReviewDetail() {
         aiCompleteFlash={null}
         hasFindings={hasFindings}
         rounds={projectRounds}
-        onBack={() => navigate("/plan-review")}
+        onBack={() => navigate(`/plan-review/${review?.id}/dashboard`)}
         onRunAICheck={openDashboard}
         onNavigateRound={(rid) => navigate(`/plan-review/${rid}`)}
         onNewRound={createNewRound}

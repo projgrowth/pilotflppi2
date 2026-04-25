@@ -70,7 +70,7 @@ export default function Review() {
   const handleProjectClick = (projectId: string) => {
     const reviewId = latestReviews?.[projectId];
     if (reviewId) {
-      navigate(`/plan-review/${reviewId}`);
+      navigate(`/plan-review/${reviewId}/dashboard`);
     } else {
       navigate(`/review/${projectId}`);
     }
