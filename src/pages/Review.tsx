@@ -6,7 +6,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
-import ConfidenceBar from "@/components/shared/ConfidenceBar";
 import ReviewStagePipeline from "@/components/shared/ReviewStagePipeline";
 import DaysActiveBadge from "@/components/shared/DaysActiveBadge";
 import FppEmptyState from "@/components/shared/FppEmptyState";
@@ -124,7 +123,6 @@ export default function Review() {
                   <DaysActiveBadge days={daysActive(p)} />
                 </div>
                 <ReviewStagePipeline currentStage={stageMap[p.status] || "intake"} compact />
-                <ConfidenceBar score={0} animated />
               </CardContent>
             </Card>
           ))}

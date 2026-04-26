@@ -58,7 +58,7 @@ export function useLetterAutosave(reviewId: string | undefined, value: string, e
         setLastSavedAt(new Date());
         setDirty(false);
       }
-    }, 1500);
+    }, 3000);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);

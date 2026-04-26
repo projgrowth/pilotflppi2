@@ -27,6 +27,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { Sparkles, Upload, ArrowLeft, PanelRightClose, PanelRight } from "lucide-react";
 import { toast } from "sonner";
 import { ReviewTopBar } from "@/components/plan-review/ReviewTopBar";
@@ -657,6 +658,7 @@ export default function PlanReviewDetail() {
           {/* LEFT — Document viewer */}
           <ResizablePanel defaultSize={rightPanelCollapsed ? 100 : 65} minSize={35}>
             <div className="h-full flex flex-col min-w-0">
+            <ErrorBoundary>
               <PlanViewerPanel
                 hasDocuments={hasDocuments}
                 fileUrls={fileUrls}
@@ -675,6 +677,7 @@ export default function PlanReviewDetail() {
                 onFileUpload={handleFileUpload}
                 showFileTabs
               />
+            </ErrorBoundary>
             </div>
           </ResizablePanel>
 
@@ -736,7 +739,9 @@ export default function PlanReviewDetail() {
                 <div className="flex-1 overflow-y-auto">
                   {rightPanel === "findings" && (
                     <div className="p-3 space-y-2">
-                      <FindingsListPanel {...findingsListProps} />
+                      <ErrorBoundary>
+                        <FindingsListPanel {...findingsListProps} />
+                      </ErrorBoundary>
                     </div>
                   )}
                   {rightPanel === "checklist" && (
@@ -749,7 +754,11 @@ export default function PlanReviewDetail() {
                       <SitePlanChecklist findings={findings} county={county} />
                     </div>
                   )}
-                  {rightPanel === "letter" && <LetterPanel {...letterPanelProps} />}
+                  {rightPanel === "letter" && (
+                    <ErrorBoundary>
+                      <LetterPanel {...letterPanelProps} />
+                    </ErrorBoundary>
+                  )}
                   {rightPanel === "county" && <CountyPanel county={county} />}
                 </div>
               </div>

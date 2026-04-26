@@ -8,7 +8,6 @@ import { useProjects, getDaysElapsed, type Project } from "@/hooks/useProjects";
 import { useReviewFlagCounts } from "@/hooks/useReviewData";
 import { useInspections } from "@/hooks/useInspections";
 import { useCountUp } from "@/hooks/useCountUp";
-import ConfidenceBar from "@/components/shared/ConfidenceBar";
 import DaysActiveBadge from "@/components/shared/DaysActiveBadge";
 import SkeletonRow from "@/components/shared/SkeletonRow";
 import { supabase } from "@/integrations/supabase/client";
@@ -44,7 +43,14 @@ function DashKpi({
 }
 
 /* ── Active Reviews Table ── */
-type SortKey = "days" | "confidence" | "jurisdiction" | "stage";
+type SortKey = "days" | "jurisdiction" | "stage";
+
+const NEXT_STEP: Record<string, { label: string; color: string }> = {
+  intake:        { label: "Upload plans",           color: "text-muted-foreground" },
+  plan_review:   { label: "Open workspace",         color: "text-primary font-medium" },
+  comments_sent: { label: "Awaiting resubmittal",   color: "text-warning" },
+  resubmitted:   { label: "Start Round 2",          color: "text-primary font-medium" },
+};
 
 function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: Project[]; navigate: (p: string) => void; latestReviews?: Record<string, string> }) {
   const [sortKey, setSortKey] = useState<SortKey>("days");
@@ -97,12 +103,10 @@ function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: P
               <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("stage")}>
                 Stage<SortIcon k="stage" />
               </th>
-              <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("confidence")}>
-                AI Conf.<SortIcon k="confidence" />
-              </th>
               <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("days")}>
                 Days<SortIcon k="days" />
               </th>
+              <th className="text-left px-4 py-3">Next Step</th>
               <th className="text-right px-4 py-3">Actions</th>
             </tr>
           </thead>
@@ -119,8 +123,14 @@ function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: P
                 </td>
                 <td className="px-4 py-3 text-xs text-muted-foreground">{p.jurisdiction || p.county || "—"}</td>
                 <td className="px-4 py-3"><StatusChip status={p.status} /></td>
-                <td className="px-4 py-3"><ConfidenceBar score={0} /></td>
                 <td className="px-4 py-3"><DaysActiveBadge days={p.daysActive} /></td>
+                <td className="px-4 py-3">
+                  {NEXT_STEP[p.status] && (
+                    <span className={cn("text-xs", NEXT_STEP[p.status].color)}>
+                      {NEXT_STEP[p.status].label}
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
                     <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View review" onClick={() => { const rid = latestReviews?.[p.id]; navigate(rid ? `/plan-review/${rid}/dashboard` : `/review/${p.id}`); }}>
