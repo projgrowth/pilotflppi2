@@ -1,12 +1,10 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useProjects } from "@/hooks/useProjects";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useLatestReviewPerProject } from "@/hooks/useLatestReviewPerProject";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
-import ConfidenceBar from "@/components/shared/ConfidenceBar";
 import ReviewStagePipeline from "@/components/shared/ReviewStagePipeline";
 import DaysActiveBadge from "@/components/shared/DaysActiveBadge";
 import FppEmptyState from "@/components/shared/FppEmptyState";
@@ -33,23 +31,7 @@ export default function Review() {
   const [search, setSearch] = useState("");
   const [countyFilter, setCountyFilter] = useState("all");
 
-  // Fetch latest plan_review id per project for direct linking
-  const { data: latestReviews } = useQuery({
-    queryKey: ["latest-plan-reviews"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("plan_reviews")
-        .select("id, project_id, round")
-        .order("round", { ascending: false });
-      if (error) throw error;
-      // Keep only the latest round per project
-      const map: Record<string, string> = {};
-      for (const r of data || []) {
-        if (!map[r.project_id]) map[r.project_id] = r.id;
-      }
-      return map;
-    },
-  });
+  const latestReviews = useLatestReviewPerProject();
 
   const counties = useMemo(() => {
     const set = new Set((projects || []).map((p) => p.county).filter(Boolean));
@@ -68,9 +50,9 @@ export default function Review() {
   const daysActive = (p: { created_at: string }) => Math.floor((Date.now() - new Date(p.created_at).getTime()) / 86400000);
 
   const handleProjectClick = (projectId: string) => {
-    const reviewId = latestReviews?.[projectId];
+    const reviewId = latestReviews[projectId];
     if (reviewId) {
-      navigate(`/plan-review/${reviewId}`);
+      navigate(`/plan-review/${reviewId}/dashboard`);
     } else {
       navigate(`/review/${projectId}`);
     }
@@ -124,7 +106,6 @@ export default function Review() {
                   <DaysActiveBadge days={daysActive(p)} />
                 </div>
                 <ReviewStagePipeline currentStage={stageMap[p.status] || "intake"} compact />
-                <ConfidenceBar score={0} animated />
               </CardContent>
             </Card>
           ))}

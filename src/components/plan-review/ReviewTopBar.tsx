@@ -42,6 +42,8 @@ export function ReviewTopBar({
  </Button>
  <div className="flex-1 min-w-0">
  <div className="flex items-center gap-2">
+ <span className="text-caption font-semibold uppercase tracking-widest text-muted-foreground/60 shrink-0 hidden sm:inline">Reviewer Workspace</span>
+ <span className="text-caption text-muted-foreground/40 hidden sm:inline">·</span>
  <h1 className="text-sm font-semibold truncate">{projectName || "Plan Review"}</h1>
  {tradeType && tradeType.toLowerCase() !== "building" && (
  <span className="rounded bg-muted px-1.5 py-0.5 text-caption font-medium capitalize shrink-0">{tradeType}</span>

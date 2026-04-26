@@ -65,6 +65,25 @@ const DISCIPLINES = [
  * "Product Approvals" (that's a doc category, not a sheet) and "Life Safety"
  * is sometimes labeled Architectural. This normalizer keeps routing honest.
  */
+/**
+ * Strip content from correction pattern text that could act as a prompt
+ * injection. Removes markdown code fences, angle-bracket tags, and any line
+ * that begins with an instruction-like keyword (ignore, disregard, etc.).
+ */
+function sanitizePatternText(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, "") // strip code blocks
+    .replace(/<[^>]{0,200}>/g, "") // strip HTML/angle-bracket tags (bounded to avoid ReDoS)
+    .split("\n")
+    .filter((line) => {
+      const lower = line.trim().toLowerCase();
+      return !lower.match(/^(ignore|disregard|forget|override|you are now|act as|system:|user:|assistant:|\[inst\])/);
+    })
+    .join("\n")
+    .trim()
+    .slice(0, 300); // hard cap so a single pattern can't flood the prompt
+}
+
 function normalizeAIDiscipline(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const k = raw.trim().toLowerCase();
@@ -1038,7 +1057,7 @@ async function runDisciplineChecks(
   const fbcEdition = (ctx.dna?.fbc_edition as string | null) ?? null;
   let patternQuery = admin
     .from("correction_patterns")
-    .select("id, pattern_summary, original_finding, code_reference, reason_notes, rejection_count")
+    .select("id, pattern_summary, original_finding, code_reference, reason_notes, rejection_count, occupancy_classification, construction_type")
     .eq("discipline", ctx.discipline)
     .eq("is_active", true)
     .order("rejection_count", { ascending: false })
@@ -1053,16 +1072,29 @@ async function runDisciplineChecks(
     code_reference: { section?: string } | null;
     reason_notes: string;
     rejection_count: number;
+    occupancy_classification: string | null;
+    construction_type: string | null;
   }>;
-  // Filter for project-DNA relevance when possible (best-effort).
-  const relevantPatterns = patterns.slice(0, 12);
+
+  // Filter by DNA relevance: patterns scoped to a specific occupancy or
+  // construction_type must match this project. Null fields apply universally.
+  const relevantPatterns = patterns
+    .filter((p) => {
+      if (p.occupancy_classification && occupancy &&
+          p.occupancy_classification.toLowerCase() !== occupancy.toLowerCase()) return false;
+      if (p.construction_type && constructionType &&
+          p.construction_type.toLowerCase() !== constructionType.toLowerCase()) return false;
+      return true;
+    })
+    .slice(0, 12);
 
   const learnedText = relevantPatterns.length
     ? relevantPatterns
-        .map(
-          (p, i) =>
-            `${i + 1}. ${p.pattern_summary}${p.reason_notes ? ` — Note: ${p.reason_notes}` : ""} (rejected ${p.rejection_count}× by senior reviewers)`,
-        )
+        .map((p, i) => {
+          const summary = sanitizePatternText(p.pattern_summary);
+          const notes = p.reason_notes ? ` — Note: ${sanitizePatternText(p.reason_notes)}` : "";
+          return `${i + 1}. ${summary}${notes} (rejected ${p.rejection_count}× by senior reviewers)`;
+        })
         .join("\n")
     : null;
 
@@ -1096,10 +1128,7 @@ async function runDisciplineChecks(
     `\n\nAnalyze the attached pages (general-notes pages first, then ${ctx.discipline} sheets). ` +
     `Return findings via submit_discipline_findings.`;
 
-  // Avoid unused-variable warnings on context vars used only for relevance heuristics.
-  void occupancy;
-  void constructionType;
-  void fbcEdition;
+  void fbcEdition; // retained for future edition-based filtering
 
   const content: Array<
     | { type: "text"; text: string }
@@ -2624,6 +2653,24 @@ Deno.serve(async (req) => {
     }
 
     const firmId = (pr as { firm_id: string | null }).firm_id;
+
+    // Verify the caller belongs to the firm that owns this plan_review.
+    // claimsData.claims.sub is the authenticated user's UUID.
+    const callerId = (claimsData.claims as { sub?: string }).sub;
+    if (callerId && firmId) {
+      const { data: membership } = await admin
+        .from("firm_members")
+        .select("user_id")
+        .eq("user_id", callerId)
+        .eq("firm_id", firmId)
+        .maybeSingle();
+      if (!membership) {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     // Determine which stages to run. When `start_from` is supplied (e.g. after
     // a manual DNA patch), we skip earlier stages but still substitute a cheap

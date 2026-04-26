@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Play, Loader2, FileDown, Layers } from "lucide-react";
+import { ArrowLeft, ArrowRight, Play, Loader2, FileDown, Layers } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/PageHeader";
@@ -132,15 +132,20 @@ export default function ReviewDashboard() {
     <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
       <div className="flex items-center justify-between">
         <PageHeader
-          title="Review Dashboard"
+          title="Review Control Center"
           subtitle={
             review?.project
-              ? `${review.project.name} · Round ${review.round}`
+              ? `${review.project.name} · Round ${review.round} · ${review.project.county} County`
               : "Loading…"
           }
         />
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={runPipeline} disabled={running}>
+          <Button asChild size="sm">
+            <Link to={`/plan-review/${id}`}>
+              Open Reviewer Workspace <ArrowRight className="ml-1 h-4 w-4" />
+            </Link>
+          </Button>
+          <Button size="sm" variant="secondary" onClick={runPipeline} disabled={running}>
             {running ? (
               <Loader2 className="mr-1 h-4 w-4 animate-spin" />
             ) : (
@@ -150,17 +155,12 @@ export default function ReviewDashboard() {
           </Button>
           <Button
             size="sm"
-            variant="secondary"
+            variant="outline"
             onClick={handleGenerateReport}
             disabled={!review?.project}
           >
             <FileDown className="mr-1 h-4 w-4" />
             Generate Report
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link to={`/plan-review/${id}`}>
-              <ArrowLeft className="mr-1 h-4 w-4" /> Back to workspace
-            </Link>
           </Button>
         </div>
       </div>
