@@ -76,7 +76,7 @@ export default function PlanReviewDetail() {
 
   // ── Data ───────────────────────────────────────────────────────────────
   const { review, isLoading, rounds, findings } = usePlanReviewData(id);
-  const { findingStatuses, updateFindingStatus } = useFindingStatuses(review, user?.id, refetchHistory);
+  const { findingStatuses, updateFindingStatus } = useFindingStatuses(review, user?.id, refetchHistory, findings);
 
   // ── PDF rendering ──────────────────────────────────────────────────────
   const { pageImages, pageCapInfo, renderingPages, renderProgress, renderDocumentPages, resetPages } =

@@ -13,6 +13,7 @@ import SkeletonRow from "@/components/shared/SkeletonRow";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { useRevenueStats, useInvoices } from "@/hooks/useInvoices";
+import { useLatestReviewPerProject } from "@/hooks/useLatestReviewPerProject";
 import { PageHeader } from "@/components/PageHeader";
 import {
   FileText, CheckCircle, ClipboardCheck, AlertTriangle,
@@ -52,7 +53,7 @@ const NEXT_STEP: Record<string, { label: string; color: string }> = {
   resubmitted:   { label: "Start Round 2",          color: "text-primary font-medium" },
 };
 
-function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: Project[]; navigate: (p: string) => void; latestReviews?: Record<string, string> }) {
+function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: Project[]; navigate: (p: string) => void; latestReviews: Record<string, string> }) {
   const [sortKey, setSortKey] = useState<SortKey>("days");
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -115,7 +116,7 @@ function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: P
               <tr
                 key={p.id}
                 className="hover:bg-muted/30 cursor-pointer transition-colors"
-                onClick={() => { const rid = latestReviews?.[p.id]; navigate(rid ? `/plan-review/${rid}/dashboard` : `/review/${p.id}`); }}
+                onClick={() => { const rid = latestReviews[p.id]; navigate(rid ? `/plan-review/${rid}/dashboard` : `/review/${p.id}`); }}
               >
                 <td className="px-4 py-3">
                   <p className="font-medium truncate max-w-[200px]">{p.name}</p>
@@ -133,7 +134,7 @@ function ActiveReviewsQueue({ projects, navigate, latestReviews }: { projects: P
                 </td>
                 <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View review" onClick={() => { const rid = latestReviews?.[p.id]; navigate(rid ? `/plan-review/${rid}/dashboard` : `/review/${p.id}`); }}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View review" onClick={() => { const rid = latestReviews[p.id]; navigate(rid ? `/plan-review/${rid}/dashboard` : `/review/${p.id}`); }}>
                       <Eye className="h-3.5 w-3.5" />
                     </Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View project" onClick={() => navigate(`/projects/${p.id}`)}>
@@ -362,22 +363,7 @@ export default function Dashboard() {
   const { data: inspections } = useInspections();
   const { data: revenueStats } = useRevenueStats();
 
-  // Fetch latest plan_review id per project for direct linking
-  const { data: latestReviews } = useQuery({
-    queryKey: ["latest-plan-reviews"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("plan_reviews")
-        .select("id, project_id, round")
-        .order("round", { ascending: false });
-      if (error) throw error;
-      const map: Record<string, string> = {};
-      for (const r of data || []) {
-        if (!map[r.project_id]) map[r.project_id] = r.id;
-      }
-      return map;
-    },
-  });
+  const latestReviews = useLatestReviewPerProject();
 
   // KPI calculations
   const activeStatuses = ["intake", "plan_review", "comments_sent", "resubmitted"];
