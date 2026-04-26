@@ -38,6 +38,7 @@ export function useFindingFilters(
   return useMemo(() => {
     const grouped = groupFindingsByDiscipline(findings);
 
+    // Optimize filtering: use Set for O(1) lookups instead of Array.includes
     const filtered = findings.filter((f, i) => {
       if (filters.status !== "all" && (findingStatuses[i] || "open") !== filters.status) return false;
       if (filters.confidence !== "all" && (f.markup?.pin_confidence || "low") !== filters.confidence) return false;
@@ -45,13 +46,24 @@ export function useFindingFilters(
       if (filters.sheet !== "all" && (f.page || "Unknown").trim() !== filters.sheet) return false;
       return true;
     });
+    const filteredSet = new Set(filtered);
     const filteredGrouped = groupFindingsByDiscipline(filtered);
 
+    // Count confidence levels efficiently
+    let highCount = 0;
+    let mediumCount = 0;
+    let lowCount = 0;
+    for (const f of findings) {
+      const conf = f.markup?.pin_confidence || "low";
+      if (conf === "high") highCount++;
+      else if (conf === "medium") mediumCount++;
+      else lowCount++;
+    }
     const confidenceCounts: Record<ConfidenceFilter, number> = {
       all: findings.length,
-      high: findings.filter((f) => (f.markup?.pin_confidence || "low") === "high").length,
-      medium: findings.filter((f) => (f.markup?.pin_confidence || "low") === "medium").length,
-      low: findings.filter((f) => (f.markup?.pin_confidence || "low") === "low").length,
+      high: highCount,
+      medium: mediumCount,
+      low: lowCount,
     };
 
     const disciplinesPresent = Array.from(new Set(findings.map((f) => f.discipline || "structural"))).sort(
@@ -61,19 +73,36 @@ export function useFindingFilters(
     );
     const sheetsPresent = Array.from(new Set(findings.map((f) => (f.page || "Unknown").trim()))).sort();
 
-    const visibleIndices = findings.reduce<number[]>((acc, f, i) => {
-      if (filtered.includes(f)) acc.push(i);
-      return acc;
-    }, []);
-    const allVisibleResolved =
-      visibleIndices.length > 0 && visibleIndices.every((i) => findingStatuses[i] === "resolved");
+    // Use Set for O(1) lookup instead of Array.includes
+    const visibleIndices: number[] = [];
+    let visibleResolvedCount = 0;
+    for (let i = 0; i < findings.length; i++) {
+      if (filteredSet.has(findings[i])) {
+        visibleIndices.push(i);
+        if (findingStatuses[i] === "resolved") visibleResolvedCount++;
+      }
+    }
+    const allVisibleResolved = visibleIndices.length > 0 && visibleResolvedCount === visibleIndices.length;
 
-    const criticalCount = findings.filter((f) => f.severity === "critical").length;
-    const majorCount = findings.filter((f) => f.severity === "major").length;
-    const minorCount = findings.filter((f) => f.severity === "minor").length;
-    const openCount = findings.filter((_, i) => !findingStatuses[i] || findingStatuses[i] === "open").length;
-    const resolvedCount = findings.filter((_, i) => findingStatuses[i] === "resolved").length;
-    const deferredCount = findings.filter((_, i) => findingStatuses[i] === "deferred").length;
+    // Count statuses efficiently
+    let criticalCount = 0;
+    let majorCount = 0;
+    let minorCount = 0;
+    let openCount = 0;
+    let resolvedCount = 0;
+    let deferredCount = 0;
+    
+    for (let i = 0; i < findings.length; i++) {
+      const f = findings[i];
+      if (f.severity === "critical") criticalCount++;
+      else if (f.severity === "major") majorCount++;
+      else if (f.severity === "minor") minorCount++;
+
+      const status = findingStatuses[i] || "open";
+      if (status === "open") openCount++;
+      else if (status === "resolved") resolvedCount++;
+      else if (status === "deferred") deferredCount++;
+    }
 
     // Stable global index across grouped accordion sections so keyboard nav
     // and selection always reference one canonical index.

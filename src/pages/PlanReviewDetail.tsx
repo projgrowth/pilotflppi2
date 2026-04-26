@@ -15,7 +15,7 @@
  * shortcuts (since they cross multiple panels), and handles the actions
  * (upload, generate letter, navigate).
  */
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -52,6 +52,7 @@ import type { PlanReviewRow } from "@/types";
 import { usePlanReviewData } from "@/hooks/plan-review/usePlanReviewData";
 import { useFindingFilters, useRoundDiff } from "@/hooks/plan-review/useFindingFilters";
 import { useFindingStatuses } from "@/hooks/plan-review/useFindingStatuses";
+import { useFilterState } from "@/hooks/plan-review/useFilterState";
 import { usePdfPageRender } from "@/hooks/plan-review/usePdfPageRender";
 
 type RightPanelMode = "findings" | "checklist" | "completeness" | "letter" | "county";
@@ -82,6 +83,9 @@ export default function PlanReviewDetail() {
   const { pageImages, pageCapInfo, renderingPages, renderProgress, renderDocumentPages, resetPages } =
     usePdfPageRender();
 
+  // ── Filter state management ────────────────────────────────────────────
+  const { filters, setStatus, setConfidence, setDiscipline, setSheet } = useFilterState();
+
   // ── UI state ───────────────────────────────────────────────────────────
   const [commentLetter, setCommentLetter] = useState("");
   const [generatingLetter, setGeneratingLetter] = useState(false);
@@ -92,10 +96,6 @@ export default function PlanReviewDetail() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeFindingIndex, setActiveFindingIndex] = useState<number | null>(null);
   const findingRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const [statusFilter, setStatusFilter] = useState<FindingStatus | "all">("all");
-  const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all");
-  const [disciplineFilter, setDisciplineFilter] = useState<string | "all">("all");
-  const [sheetFilter, setSheetFilter] = useState<string | "all">("all");
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [repositioningIndex, setRepositioningIndex] = useState<number | null>(null);
@@ -103,6 +103,7 @@ export default function PlanReviewDetail() {
   const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
   const [showLintDialog, setShowLintDialog] = useState(false);
   const letterHydratedRef = useRef<string | null>(null);
+  const [mobileTab, setMobileTab] = useState<"plans" | "findings">("plans");
 
   // Autosave the comment letter to the review row, debounced.
   const { state: autosaveState, lastSavedAt } = useLetterAutosave(review?.id, commentLetter, !generatingLetter);
@@ -149,7 +150,7 @@ export default function PlanReviewDetail() {
     }
   }, [review]);
 
-  const handleFileUpload = async (files: FileList | null) => {
+  const handleFileUpload = useCallback(async (files: FileList | null) => {
     if (!files || !review) return;
     setUploading(true);
     try {
@@ -198,16 +199,16 @@ export default function PlanReviewDetail() {
     } finally {
       setUploading(false);
     }
-  };
+  }, [review, user?.id, queryClient, id, resetPages]);
 
-  const createNewRound = () => {
+  const createNewRound = useCallback(() => {
     // New rounds belong on the v2 dashboard so deficiencies_v2 carries forward
     // correctly. The dashboard owns the only writer of pipeline output.
     if (!review) return;
     navigate(`/plan-review/${review.id}/dashboard`);
-  };
+  }, [review, navigate]);
 
-  const generateCommentLetter = async (r: PlanReviewRow) => {
+  const generateCommentLetter = useCallback(async (r: PlanReviewRow) => {
     letterAbortRef.current?.abort();
     const controller = new AbortController();
     letterAbortRef.current = controller;
@@ -242,18 +243,18 @@ export default function PlanReviewDetail() {
     } finally {
       if (letterAbortRef.current === controller) letterAbortRef.current = null;
     }
-  };
+  }, [findings]);
 
-  const cancelCommentLetter = () => {
+  const cancelCommentLetter = useCallback(() => {
     letterAbortRef.current?.abort();
-  };
+  }, []);
 
-  const copyLetter = () => {
+  const copyLetter = useCallback(() => {
     navigator.clipboard.writeText(commentLetter);
     setCopied(true);
     toast.success("Copied to clipboard");
     setTimeout(() => setCopied(false), 2000);
-  };
+  }, [commentLetter]);
 
   const handleAnnotationClick = useCallback((index: number) => {
     setActiveFindingIndex(index);
@@ -272,10 +273,9 @@ export default function PlanReviewDetail() {
     [pageImages.length, review, renderDocumentPages],
   );
 
-  // ── Reviewer keyboard shortcuts (global to the page) ───────────────────
-  // J / K — next / prev finding · R — reposition · S — resolved · X — deferred · O — open
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
+  // Memoized keyboard handler callback to stabilize dependencies
+  const handleKeyboardShortcut = useCallback(
+    (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -336,10 +336,16 @@ export default function PlanReviewDetail() {
           break;
         }
       }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [activeFindingIndex, findings, updateFindingStatus, showShortcuts]);
+    },
+    [activeFindingIndex, findings, updateFindingStatus, showShortcuts],
+  );
+
+  // ── Reviewer keyboard shortcuts (global to the page) ───────────────────
+  // J / K — next / prev finding · R — reposition · S — resolved · X — deferred · O — open
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyboardShortcut);
+    return () => window.removeEventListener("keydown", handleKeyboardShortcut);
+  }, [handleKeyboardShortcut]);
 
   if (isLoading) {
     return (
@@ -375,156 +381,236 @@ export default function PlanReviewDetail() {
   const fileUrls = review.file_urls || [];
   const contractor = review.project?.contractor || null;
 
-  const filterState = {
-    status: statusFilter,
-    confidence: confidenceFilter,
-    discipline: disciplineFilter,
-    sheet: sheetFilter,
-  };
-  const f = useFindingFilters(findings, findingStatuses, filterState);
+  const f = useFindingFilters(findings, findingStatuses, filters);
   const diff = useRoundDiff(findings, previousFindings, review.round);
 
-  const handleMarkVisibleResolved = () => {
+  const handleMarkVisibleResolved = useCallback(() => {
     if (f.visibleIndices.length === 0) return;
     f.visibleIndices.forEach((i) => {
       if (findingStatuses[i] !== "resolved") updateFindingStatus(i, "resolved");
     });
     toast.success(`Marked ${f.visibleIndices.length} finding${f.visibleIndices.length === 1 ? "" : "s"} resolved`);
-  };
+  }, [f.visibleIndices, findingStatuses, updateFindingStatus]);
 
   const daysLeft = getDaysRemaining(review.created_at);
-  const projectRounds = rounds.map((r) => ({
-    id: r.id,
-    round: r.round,
-    created_at: r.created_at,
-    ai_check_status: r.ai_check_status,
-    findingsCount: r.findings_count || 0,
-  }));
+  
+  const projectRounds = useMemo(
+    () =>
+      rounds.map((r) => ({
+        id: r.id,
+        round: r.round,
+        created_at: r.created_at,
+        ai_check_status: r.ai_check_status,
+        findingsCount: r.findings_count || 0,
+      })),
+    [rounds],
+  );
 
   const hasDocuments = fileUrls.length > 0;
   const hasFindings = findings.length > 0;
-  const openDashboard = () => navigate(`/plan-review/${review.id}/dashboard`);
+  const openDashboard = useCallback(
+    () => navigate(`/plan-review/${review.id}/dashboard`),
+    [navigate, review.id],
+  );
 
-  const findingsListProps = {
-    findings,
-    filteredFindings: f.filtered,
-    filteredGrouped: f.filteredGrouped,
-    globalIndexMap: f.globalIndexMap,
-    findingStatuses,
-    activeFindingIndex,
-    onLocate: handleLocateFinding,
-    onReposition: setRepositioningIndex,
-    onStatusChange: updateFindingStatus,
-    findingRefs,
-    findingHistory,
-    statusFilter,
-    onStatusFilterChange: setStatusFilter,
-    confidenceFilter,
-    onConfidenceFilterChange: setConfidenceFilter,
-    disciplineFilter,
-    onDisciplineFilterChange: setDisciplineFilter,
-    sheetFilter,
-    onSheetFilterChange: setSheetFilter,
-    openCount: f.openCount,
-    resolvedCount: f.resolvedCount,
-    deferredCount: f.deferredCount,
-    confidenceCounts: f.confidenceCounts,
-    disciplinesPresent: f.disciplinesPresent,
-    sheetsPresent: f.sheetsPresent,
-    allVisibleResolved: f.allVisibleResolved,
-    onMarkVisibleResolved: handleMarkVisibleResolved,
-    hasRoundDiff: diff.hasRoundDiff,
-    round: review.round,
-    newCount: diff.newCount,
-    persistedCount: diff.persistedCount,
-    newlyResolvedCount: diff.newlyResolvedCount,
-    diffMap: diff.diffMap,
-    hasDocuments,
-    fileUrls,
-    onOpenDashboard: openDashboard,
-  };
+  const findingsListProps = useMemo(
+    () => ({
+      findings,
+      filteredFindings: f.filtered,
+      filteredGrouped: f.filteredGrouped,
+      globalIndexMap: f.globalIndexMap,
+      findingStatuses,
+      activeFindingIndex,
+      onLocate: handleLocateFinding,
+      onReposition: setRepositioningIndex,
+      onStatusChange: updateFindingStatus,
+      findingRefs,
+      findingHistory,
+      statusFilter: filters.status,
+      onStatusFilterChange: setStatus,
+      confidenceFilter: filters.confidence,
+      onConfidenceFilterChange: setConfidence,
+      disciplineFilter: filters.discipline,
+      onDisciplineFilterChange: setDiscipline,
+      sheetFilter: filters.sheet,
+      onSheetFilterChange: setSheet,
+      openCount: f.openCount,
+      resolvedCount: f.resolvedCount,
+      deferredCount: f.deferredCount,
+      confidenceCounts: f.confidenceCounts,
+      disciplinesPresent: f.disciplinesPresent,
+      sheetsPresent: f.sheetsPresent,
+      allVisibleResolved: f.allVisibleResolved,
+      onMarkVisibleResolved: handleMarkVisibleResolved,
+      hasRoundDiff: diff.hasRoundDiff,
+      round: review.round,
+      newCount: diff.newCount,
+      persistedCount: diff.persistedCount,
+      newlyResolvedCount: diff.newlyResolvedCount,
+      diffMap: diff.diffMap,
+      hasDocuments,
+      fileUrls,
+      onOpenDashboard: openDashboard,
+    }),
+    [
+      findings,
+      f.filtered,
+      f.filteredGrouped,
+      f.globalIndexMap,
+      findingStatuses,
+      activeFindingIndex,
+      handleLocateFinding,
+      updateFindingStatus,
+      findingHistory,
+      filters,
+      setStatus,
+      setConfidence,
+      setDiscipline,
+      setSheet,
+      f.openCount,
+      f.resolvedCount,
+      f.deferredCount,
+      f.confidenceCounts,
+      f.disciplinesPresent,
+      f.sheetsPresent,
+      f.allVisibleResolved,
+      handleMarkVisibleResolved,
+      diff.hasRoundDiff,
+      diff.newCount,
+      diff.persistedCount,
+      diff.newlyResolvedCount,
+      diff.diffMap,
+      review.round,
+      hasDocuments,
+      fileUrls,
+      openDashboard,
+    ],
+  );
 
-  const letterPanelProps = {
-    reviewId: review.id,
-    projectId: review.project_id,
-    projectName: review.project?.name || "",
-    address: review.project?.address || "",
-    county,
-    jurisdiction: review.project?.jurisdiction || "",
-    tradeType: review.project?.trade_type || "",
-    round: review.round,
-    aiCheckStatus: review.ai_check_status,
-    qcStatus: review.qc_status || "pending_qc",
-    hasFindings,
-    findings,
-    findingStatuses,
-    firmSettings,
-    commentLetter,
-    generatingLetter,
-    copied,
-    userId: user?.id,
-    autosaveState,
-    autosaveLastSavedAt: lastSavedAt,
-    onGenerateLetter: async () => {
-      if (
-        commentLetter &&
-        !(await confirm({
-          title: "Regenerate letter?",
-          description: "This replaces the current draft. Your edits will be lost.",
-          confirmLabel: "Regenerate",
-          variant: "destructive" as const,
-          rememberKey: "regen-letter",
-        }))
-      )
-        return;
-      generateCommentLetter(review);
-    },
-    onCancelLetter: cancelCommentLetter,
-    onCopyLetter: copyLetter,
-    onLetterChange: setCommentLetter,
-    onSendToContractor: () => {
-      const issues = lintCommentLetter(commentLetter, findings, findingStatuses);
-      setLintIssues(issues);
-      setShowLintDialog(true);
-    },
-    onQcApprove: async () => {
-      // FS 553.791 sign-off integrity: a reviewer cannot QC their own work.
-      if (review.reviewer_id && review.reviewer_id === user?.id) {
-        toast.error("You ran this review — a different team member must approve QC.");
-        return;
-      }
-      await supabase
-        .from("plan_reviews")
-        .update({ qc_status: "qc_approved", qc_reviewer_id: user?.id })
-        .eq("id", review.id);
-      await supabase.from("activity_log").insert({
-        event_type: "qc_approved",
-        description: "Plan review QC approved",
-        project_id: review.project_id,
-        actor_id: user?.id,
-        actor_type: "user",
-      });
-      queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
-      toast.success("QC approved — exports unlocked");
-    },
-    onQcReject: async () => {
-      await supabase
-        .from("plan_reviews")
-        .update({ qc_status: "qc_rejected", qc_reviewer_id: user?.id })
-        .eq("id", review.id);
-      await supabase.from("activity_log").insert({
-        event_type: "qc_rejected",
-        description: "Plan review QC rejected",
-        project_id: review.project_id,
-        actor_id: user?.id,
-        actor_type: "user",
-      });
-      queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
-      toast.error("QC rejected");
-    },
-    onDocumentGenerated: () =>
-      queryClient.invalidateQueries({ queryKey: ["project-documents", review.project_id] }),
-  };
+  const handleQcApprove = useCallback(async () => {
+    // FS 553.791 sign-off integrity: a reviewer cannot QC their own work.
+    if (review.reviewer_id && review.reviewer_id === user?.id) {
+      toast.error("You ran this review — a different team member must approve QC.");
+      return;
+    }
+    await supabase
+      .from("plan_reviews")
+      .update({ qc_status: "qc_approved", qc_reviewer_id: user?.id })
+      .eq("id", review.id);
+    await supabase.from("activity_log").insert({
+      event_type: "qc_approved",
+      description: "Plan review QC approved",
+      project_id: review.project_id,
+      actor_id: user?.id,
+      actor_type: "user",
+    });
+    queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
+    toast.success("QC approved — exports unlocked");
+  }, [review.reviewer_id, review.id, review.project_id, user?.id, queryClient, id]);
+
+  const handleQcReject = useCallback(async () => {
+    await supabase
+      .from("plan_reviews")
+      .update({ qc_status: "qc_rejected", qc_reviewer_id: user?.id })
+      .eq("id", review.id);
+    await supabase.from("activity_log").insert({
+      event_type: "qc_rejected",
+      description: "Plan review QC rejected",
+      project_id: review.project_id,
+      actor_id: user?.id,
+      actor_type: "user",
+    });
+    queryClient.invalidateQueries({ queryKey: ["plan-review", id] });
+    toast.error("QC rejected");
+  }, [review.id, review.project_id, user?.id, queryClient, id]);
+
+  const handleSendToContractor = useCallback(() => {
+    const issues = lintCommentLetter(commentLetter, findings, findingStatuses);
+    setLintIssues(issues);
+    setShowLintDialog(true);
+  }, [commentLetter, findings, findingStatuses]);
+
+  const handleGenerateLetter = useCallback(async () => {
+    if (
+      commentLetter &&
+      !(await confirm({
+        title: "Regenerate letter?",
+        description: "This replaces the current draft. Your edits will be lost.",
+        confirmLabel: "Regenerate",
+        variant: "destructive" as const,
+        rememberKey: "regen-letter",
+      }))
+    )
+      return;
+    generateCommentLetter(review);
+  }, [commentLetter, confirm, generateCommentLetter, review]);
+
+  const handleDocumentGenerated = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ["project-documents", review.project_id] }),
+    [queryClient, review.project_id],
+  );
+
+  const letterPanelProps = useMemo(
+    () => ({
+      reviewId: review.id,
+      projectId: review.project_id,
+      projectName: review.project?.name || "",
+      address: review.project?.address || "",
+      county,
+      jurisdiction: review.project?.jurisdiction || "",
+      tradeType: review.project?.trade_type || "",
+      round: review.round,
+      aiCheckStatus: review.ai_check_status,
+      qcStatus: review.qc_status || "pending_qc",
+      hasFindings,
+      findings,
+      findingStatuses,
+      firmSettings,
+      commentLetter,
+      generatingLetter,
+      copied,
+      userId: user?.id,
+      autosaveState,
+      autosaveLastSavedAt: lastSavedAt,
+      onGenerateLetter: handleGenerateLetter,
+      onCancelLetter: cancelCommentLetter,
+      onCopyLetter: copyLetter,
+      onLetterChange: setCommentLetter,
+      onSendToContractor: handleSendToContractor,
+      onQcApprove: handleQcApprove,
+      onQcReject: handleQcReject,
+      onDocumentGenerated: handleDocumentGenerated,
+    }),
+    [
+      review.id,
+      review.project_id,
+      review.project?.name,
+      review.project?.address,
+      county,
+      review.project?.jurisdiction,
+      review.project?.trade_type,
+      review.round,
+      review.ai_check_status,
+      review.qc_status,
+      hasFindings,
+      findings,
+      findingStatuses,
+      firmSettings,
+      commentLetter,
+      generatingLetter,
+      copied,
+      user?.id,
+      autosaveState,
+      lastSavedAt,
+      handleGenerateLetter,
+      cancelCommentLetter,
+      copyLetter,
+      handleSendToContractor,
+      handleQcApprove,
+      handleQcReject,
+      handleDocumentGenerated,
+    ],
+  );
 
   return (
     <div className="flex flex-col h-[calc(100vh-0px)] overflow-hidden">
@@ -542,9 +628,9 @@ export default function PlanReviewDetail() {
         aiCompleteFlash={null}
         hasFindings={hasFindings}
         rounds={projectRounds}
-        onBack={() => navigate(`/plan-review/${review?.id}/dashboard`)}
+        onBack={useCallback(() => navigate(`/plan-review/${review?.id}/dashboard`), [navigate, review?.id])}
         onRunAICheck={openDashboard}
-        onNavigateRound={(rid) => navigate(`/plan-review/${rid}`)}
+        onNavigateRound={useCallback((rid) => navigate(`/plan-review/${rid}`), [navigate])}
         onNewRound={createNewRound}
       />
 
