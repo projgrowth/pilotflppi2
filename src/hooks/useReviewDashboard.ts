@@ -127,7 +127,7 @@ export function usePipelineStatus(planReviewId?: string) {
   useEffect(() => {
     if (!planReviewId) return;
     const ch = supabase
-      .channel(`pipeline-${planReviewId}`)
+      .channel(`pipeline-${planReviewId}-${Date.now()}`)
       .on(
         "postgres_changes",
         {
@@ -201,7 +201,7 @@ export function useDeficienciesV2(planReviewId?: string) {
   useEffect(() => {
     if (!planReviewId) return;
     const ch = supabase
-      .channel(`deficiencies-${planReviewId}`)
+      .channel(`deficiencies-${planReviewId}-${Date.now()}`)
       .on(
         "postgres_changes",
         {
@@ -373,7 +373,7 @@ export function useDeferredScope(planReviewId?: string) {
   useEffect(() => {
     if (!planReviewId) return;
     const ch = supabase
-      .channel(`deferred-scope-${planReviewId}`)
+      .channel(`deferred-scope-${planReviewId}-${Date.now()}`)
       .on(
         "postgres_changes",
         {
