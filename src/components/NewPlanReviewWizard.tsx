@@ -166,8 +166,8 @@ export function NewPlanReviewWizard({ open, onOpenChange, onComplete, preselecte
  toast.error(`${file.name} is not a valid PDF file`);
  continue;
  }
- if (file.size > 20 * 1024 * 1024) {
- toast.error(`${file.name} exceeds 20MB limit`);
+ if (file.size > 100 * 1024 * 1024) {
+ toast.error(`${file.name} exceeds 100MB limit`);
  continue;
  }
  const pageCount = await getPDFPageCount(file);
@@ -428,7 +428,7 @@ export function NewPlanReviewWizard({ open, onOpenChange, onComplete, preselecte
  <p className="text-sm font-medium">
  {uploading ? "Processing..." : "Drop PDF files here or click to browse"}
  </p>
- <p className="text-xs text-muted-foreground mt-1">PDF files up to 20MB each • Header validation enabled</p>
+ <p className="text-xs text-muted-foreground mt-1">PDF files up to 100MB each • Header validation enabled</p>
  </div>
 
  {/* File list */}
