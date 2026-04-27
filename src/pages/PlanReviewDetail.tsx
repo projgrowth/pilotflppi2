@@ -103,7 +103,6 @@ export default function PlanReviewDetail() {
   const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
   const [showLintDialog, setShowLintDialog] = useState(false);
   const letterHydratedRef = useRef<string | null>(null);
-  const [mobileTab, setMobileTab] = useState<"plans" | "findings">("plans");
 
   // Autosave the comment letter to the review row, debounced.
   const { state: autosaveState, lastSavedAt } = useLetterAutosave(review?.id, commentLetter, !generatingLetter);
