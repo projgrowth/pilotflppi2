@@ -91,7 +91,7 @@ export function usePlanReviewData(reviewId: string | undefined) {
   useEffect(() => {
     if (!review?.id) return;
     const channel = supabase
-      .channel(`plan-review-detail-defs-${review.id}-${Date.now()}`)
+      .channel(`plan-review-detail-defs-${review.id}-${crypto.randomUUID()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "deficiencies_v2", filter: `plan_review_id=eq.${review.id}` },
