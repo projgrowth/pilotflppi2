@@ -27,7 +27,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
-import ErrorBoundary from "@/components/ErrorBoundary";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Sparkles, Upload, ArrowLeft, PanelRightClose, PanelRight } from "lucide-react";
 import { toast } from "sonner";
 import { ReviewTopBar } from "@/components/plan-review/ReviewTopBar";
