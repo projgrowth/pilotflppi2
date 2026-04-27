@@ -505,7 +505,7 @@ serve(async (req) => {
     }
 
     // Select model
-    const model = isMultimodal ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001";
+    const model = isMultimodal ? "claude-sonnet-4-6" : "claude-3-5-haiku-20241022";
 
     const requestBody: Record<string, unknown> = {
       model,

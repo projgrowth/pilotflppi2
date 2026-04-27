@@ -507,7 +507,7 @@ async function stageSheetMap(
           { role: "user", content },
         ],
         SHEET_MAP_SCHEMA as unknown as Record<string, unknown>,
-        "claude-haiku-4-5-20251001",
+        "claude-3-5-haiku-20241022",
       )) as {
         sheets: Array<{
           page_index: number;
@@ -1814,7 +1814,7 @@ async function stageDeferredScope(
         },
       ],
       DEFERRED_SCOPE_SCHEMA as unknown as Record<string, unknown>,
-      "claude-haiku-4-5-20251001",
+      "claude-3-5-haiku-20241022",
     )) as { items: Array<Record<string, unknown>> };
   } catch (err) {
     console.error("[deferred_scope] vision call failed:", err);

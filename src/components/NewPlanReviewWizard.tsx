@@ -332,6 +332,16 @@ export function NewPlanReviewWizard({ open, onOpenChange, onComplete, preselecte
  .from("plan_reviews")
  .update({ file_urls: fileUrls })
  .eq("id", review.id);
+
+ // Insert into plan_review_files so the AI pipeline can find the files.
+ // The pipeline reads from this table (not file_urls) via stageUpload().
+ await supabase.from("plan_review_files").insert(
+ fileUrls.map((fp) => ({
+ plan_review_id: review.id,
+ file_path: fp,
+ round: 1,
+ }))
+ );
  }
 
  queryClient.invalidateQueries({ queryKey: ["plan-reviews"] });
