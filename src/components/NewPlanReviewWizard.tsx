@@ -340,7 +340,13 @@ export function NewPlanReviewWizard({ open, onOpenChange, onComplete, preselecte
  handleClose();
  toast.success("Review created — ready for AI analysis");
  } catch (err) {
- toast.error(err instanceof Error ? err.message : "Failed to create review");
+ console.error("Create review error:", err);
+ const msg = err instanceof Error
+   ? err.message
+   : (typeof err === "object" && err !== null && "message" in err)
+     ? String((err as Record<string, unknown>).message)
+     : "Failed to create review";
+ toast.error(msg);
  } finally {
  setSaving(false);
  }
