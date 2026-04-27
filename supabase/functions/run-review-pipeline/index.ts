@@ -44,7 +44,7 @@ const STAGES: Stage[] = [
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 
 const DISCIPLINES = [
   "Architectural",
@@ -176,44 +176,66 @@ type ChatMessage = {
 async function callAI(
   messages: ChatMessage[],
   toolSchema?: Record<string, unknown>,
-  model = "google/gemini-2.5-pro",
+  _model = "claude-sonnet-4-6",
 ) {
-  const body: Record<string, unknown> = { model, messages };
+  // Separate system prompt from user messages (Anthropic requires system at top level)
+  const systemMsg = messages.find((m) => m.role === "system");
+  const userMessages = messages.filter((m) => m.role !== "system").map((m) => {
+    if (typeof m.content === "string") return { role: m.role, content: m.content };
+    // Convert image_url blocks to Anthropic image format
+    const content = m.content.map((part) => {
+      if (part.type === "text") return { type: "text", text: part.text };
+      const url = part.image_url.url;
+      if (url.startsWith("data:")) {
+        const [meta, data] = url.split(",");
+        const mediaType = meta.replace("data:", "").replace(";base64", "") as "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+        return { type: "image", source: { type: "base64", media_type: mediaType, data } };
+      }
+      return { type: "image", source: { type: "url", url } };
+    });
+    return { role: m.role, content };
+  });
+
+  const body: Record<string, unknown> = {
+    model: "claude-sonnet-4-6",
+    max_tokens: 8192,
+    messages: userMessages,
+  };
+  if (systemMsg) body.system = typeof systemMsg.content === "string" ? systemMsg.content : "";
   if (toolSchema) {
-    body.tools = [{ type: "function", function: toolSchema }];
-    body.tool_choice = {
-      type: "function",
-      function: { name: (toolSchema as { name: string }).name },
-    };
+    const schema = toolSchema as { name: string; description?: string; parameters?: Record<string, unknown> };
+    body.tools = [{
+      name: schema.name,
+      description: schema.description ?? "",
+      input_schema: schema.parameters ?? { type: "object", properties: {} },
+    }];
+    body.tool_choice = { type: "tool", name: schema.name };
   }
 
-  const resp = await fetch(
-    "https://ai.gateway.lovable.dev/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
     },
-  );
+    body: JSON.stringify(body),
+  });
 
   if (resp.status === 429) throw new Error("rate_limited");
-  if (resp.status === 402) throw new Error("payment_required");
   if (!resp.ok) {
     const t = await resp.text();
-    throw new Error(`ai gateway ${resp.status}: ${t.slice(0, 200)}`);
+    throw new Error(`anthropic ${resp.status}: ${t.slice(0, 200)}`);
   }
 
   const data = await resp.json();
   if (toolSchema) {
-    const args =
-      data.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-    if (!args) throw new Error("no tool args returned");
-    return JSON.parse(args);
+    const toolUse = data.content?.find((b: { type: string }) => b.type === "tool_use");
+    if (!toolUse?.input) throw new Error("no tool_use block returned");
+    return toolUse.input;
   }
-  return data.choices?.[0]?.message?.content ?? "";
+  const textBlock = data.content?.find((b: { type: string }) => b.type === "text");
+  return textBlock?.text ?? "";
 }
 
 // ---------- discipline routing ----------
@@ -485,7 +507,7 @@ async function stageSheetMap(
           { role: "user", content },
         ],
         SHEET_MAP_SCHEMA as unknown as Record<string, unknown>,
-        "google/gemini-2.5-flash",
+        "claude-haiku-4-5-20251001",
       )) as {
         sheets: Array<{
           page_index: number;
@@ -1204,7 +1226,7 @@ async function runDisciplineChecks(
     human_review_verify: f.human_review_verify ?? null,
     confidence_score: Math.max(0, Math.min(1, f.confidence_score ?? 0.5)),
     confidence_basis: f.confidence_basis ?? "Vision-extracted",
-    model_version: "google/gemini-2.5-pro",
+    model_version: "claude-sonnet-4-6",
     status: "open",
   }));
 
@@ -1475,7 +1497,7 @@ async function persistConsistencyMismatches(
       `Open ${m.sheet_a} and ${m.sheet_b}, locate the quoted values, confirm the disagreement is real (not rounding/scale).`,
     confidence_score: m.confidence_score,
     confidence_basis: "Cross-sheet vision pass",
-    model_version: "google/gemini-2.5-pro",
+    model_version: "claude-sonnet-4-6",
     status: "open",
     citation_status: "unverified",
   }));
@@ -1792,7 +1814,7 @@ async function stageDeferredScope(
         },
       ],
       DEFERRED_SCOPE_SCHEMA as unknown as Record<string, unknown>,
-      "google/gemini-2.5-flash",
+      "claude-haiku-4-5-20251001",
     )) as { items: Array<Record<string, unknown>> };
   } catch (err) {
     console.error("[deferred_scope] vision call failed:", err);

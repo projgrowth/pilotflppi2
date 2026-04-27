@@ -456,8 +456,8 @@ serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!ANTHROPIC_API_KEY) {
       return new Response(
         JSON.stringify({ error: "AI service not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -470,69 +470,69 @@ serve(async (req) => {
     const toolDef = TOOL_CALL_ACTIONS[action];
     const useToolCalling = !!toolDef && !stream;
 
-    // Build messages
+    // Build system content
     let systemContent = systemPrompt;
-
-    // For fbc_county_chat, inject county context into system prompt
     if (action === "fbc_county_chat" && payload?.county_context) {
       systemContent += `\n\n## Current County Context\n${JSON.stringify(payload.county_context, null, 2)}`;
     }
 
-    const messages: Array<Record<string, unknown>> = [
-      { role: "system", content: systemContent },
-    ];
+    // Build user messages (Anthropic keeps system separate)
+    const userMessages: Array<Record<string, unknown>> = [];
 
-    // For fbc_county_chat, use conversation history
     if (action === "fbc_county_chat" && payload?.conversation && Array.isArray(payload.conversation)) {
       for (const msg of payload.conversation) {
-        messages.push({ role: msg.role, content: msg.content });
+        userMessages.push({ role: msg.role, content: msg.content });
       }
     } else if (isMultimodal && payload?.images && Array.isArray(payload.images)) {
-      // Multimodal: send images as content parts
       const contentParts: Array<Record<string, unknown>> = [];
-
-      // Add text context if present
       const textPayload = { ...payload };
       delete textPayload.images;
       delete textPayload.stream;
       if (Object.keys(textPayload).length > 0) {
         contentParts.push({ type: "text", text: JSON.stringify(textPayload) });
       }
-
-      // Add image parts
       for (const img of payload.images) {
-        const base64Data = img.startsWith("data:") ? img : `data:image/png;base64,${img}`;
-        contentParts.push({
-          type: "image_url",
-          image_url: { url: base64Data },
-        });
+        // Convert to Anthropic image format
+        const raw = img.startsWith("data:") ? img : `data:image/png;base64,${img}`;
+        const [meta, data] = raw.split(",");
+        const mediaType = meta.replace("data:", "").replace(";base64", "") as "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+        contentParts.push({ type: "image", source: { type: "base64", media_type: mediaType, data } });
       }
-
-      messages.push({ role: "user", content: contentParts });
+      userMessages.push({ role: "user", content: contentParts });
     } else {
-      // Text-only
       const userMessage = typeof payload === "string" ? payload : JSON.stringify(payload);
-      messages.push({ role: "user", content: userMessage });
+      userMessages.push({ role: "user", content: userMessage });
     }
 
-    // Select model: use gemini-2.5-pro for multimodal, gemini-3-flash-preview for text
-    const model = isMultimodal ? "google/gemini-2.5-pro" : "google/gemini-3-flash-preview";
+    // Select model
+    const model = isMultimodal ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001";
 
     const requestBody: Record<string, unknown> = {
       model,
-      messages,
-      stream,
+      max_tokens: 8192,
+      system: systemContent,
+      messages: userMessages,
     };
 
     if (useToolCalling) {
-      requestBody.tools = [toolDef];
-      requestBody.tool_choice = { type: "function", function: { name: toolDef.function.name } };
+      const td = toolDef.function as { name: string; description?: string; parameters?: Record<string, unknown> };
+      requestBody.tools = [{
+        name: td.name,
+        description: td.description ?? "",
+        input_schema: td.parameters ?? { type: "object", properties: {} },
+      }];
+      requestBody.tool_choice = { type: "tool", name: td.name };
     }
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    if (stream) {
+      requestBody.stream = true;
+    }
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify(requestBody),
@@ -544,13 +544,8 @@ serve(async (req) => {
           status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds in Settings > Workspace > Usage." }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
       const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
+      console.error("Anthropic API error:", response.status, errorText);
       return new Response(JSON.stringify({ error: "AI service error" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -566,31 +561,29 @@ serve(async (req) => {
 
     // Handle tool call response
     if (useToolCalling) {
-      const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-      if (toolCall?.function?.arguments) {
+      const toolUse = data.content?.find((b: { type: string }) => b.type === "tool_use");
+      if (toolUse?.input) {
         try {
-          const parsed = JSON.parse(toolCall.function.arguments);
-          // For extract_project_info and extract_zoning_data, return the object directly
+          const parsed = toolUse.input;
           if (action === "extract_project_info" || action === "extract_zoning_data") {
             return new Response(JSON.stringify({ content: JSON.stringify(parsed) }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
-          // For plan review, return findings array
           return new Response(JSON.stringify({ content: JSON.stringify(parsed.findings) }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e) {
-          console.error("Failed to parse tool call arguments:", e);
+          console.error("Failed to parse tool input:", e);
         }
       }
-      const content = data.choices?.[0]?.message?.content || "[]";
-      return new Response(JSON.stringify({ content }), {
+      return new Response(JSON.stringify({ content: "[]" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const content = data.choices?.[0]?.message?.content || "";
+    const textBlock = data.content?.find((b: { type: string }) => b.type === "text");
+    const content = textBlock?.text ?? "";
     return new Response(JSON.stringify({ content }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
