@@ -346,6 +346,13 @@ export default function PlanReviewDetail() {
     return () => window.removeEventListener("keydown", handleKeyboardShortcut);
   }, [handleKeyboardShortcut]);
 
+  // ── Hooks that must be called unconditionally (Rules of Hooks) ─────────
+  // These must live BEFORE any early returns. Use safe defaults for the
+  // null/loading states; the returned values are only used after the guards.
+  const previousFindings = (review?.previous_findings as Finding[]) || [];
+  const f = useFindingFilters(findings, findingStatuses, filters);
+  const diff = useRoundDiff(findings, previousFindings, review?.round ?? 1);
+
   if (isLoading) {
     return (
       <div className="flex flex-col h-[calc(100vh-0px)]">
@@ -373,15 +380,11 @@ export default function PlanReviewDetail() {
     );
   }
 
-  // ── Derived ────────────────────────────────────────────────────────────
-  const previousFindings = (review.previous_findings as Finding[]) || [];
+  // ── Derived (review is guaranteed non-null below this line) ────────────
   const county = review.project?.county || "";
   const hvhz = isHVHZ(county);
   const fileUrls = review.file_urls || [];
   const contractor = review.project?.contractor || null;
-
-  const f = useFindingFilters(findings, findingStatuses, filters);
-  const diff = useRoundDiff(findings, previousFindings, review.round);
 
   const handleMarkVisibleResolved = useCallback(() => {
     if (f.visibleIndices.length === 0) return;
