@@ -663,7 +663,7 @@ async function stageDnaExtract(
   const baseDefaults = {
     plan_review_id: planReviewId,
     firm_id: firmId,
-    fbc_edition: project?.fbc_edition ?? "7th",
+    fbc_edition: project?.fbc_edition ?? "8th",
     jurisdiction: project?.projects?.jurisdiction ?? null,
     county: project?.projects?.county ?? null,
   };
@@ -745,7 +745,7 @@ async function stageDnaExtract(
     fbc_edition:
       (extracted.fbc_edition as string | null) ??
       project?.fbc_edition ??
-      "7th",
+      "8th",
     wind_speed_vult: (extracted.wind_speed_vult as number | null) ?? null,
     exposure_category: (extracted.exposure_category as string | null) ?? null,
     risk_category: (extracted.risk_category as string | null) ?? null,
@@ -1226,7 +1226,7 @@ async function runDisciplineChecks(
     discipline: ctx.discipline,
     sheet_refs: f.sheet_refs ?? [],
     code_reference: f.code_section
-      ? { code: "FBC", section: f.code_section, edition: ctx.dna?.fbc_edition ?? "7th" }
+      ? { code: "FBC", section: f.code_section, edition: ctx.dna?.fbc_edition ?? "8th" }
       : {},
     finding: f.finding,
     required_action: f.required_action,
