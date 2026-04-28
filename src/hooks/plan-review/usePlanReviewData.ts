@@ -77,7 +77,7 @@ export function usePlanReviewData(reviewId: string | undefined) {
       const { data, error } = await supabase
         .from("deficiencies_v2")
         .select(
-          "id, def_number, discipline, finding, required_action, sheet_refs, code_reference, evidence, confidence_score, confidence_basis, priority, life_safety_flag, permit_blocker, liability_flag, requires_human_review, human_review_reason, verification_status, status, model_version",
+          "id, def_number, discipline, finding, required_action, sheet_refs, code_reference, evidence, confidence_score, confidence_basis, priority, life_safety_flag, permit_blocker, liability_flag, requires_human_review, human_review_reason, verification_status, citation_status, status, model_version",
         )
         .eq("plan_review_id", review!.id)
         .order("def_number", { ascending: true });

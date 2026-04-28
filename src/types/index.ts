@@ -73,6 +73,15 @@ export interface Finding {
    *  client-side via useSimilarCorrections, NOT persisted. Drives the
    *  "Corrected N× before" badge that surfaces the learning loop to reviewers. */
   similar_corrections_count?: number;
+  /** All sheet references for this finding (v2). May span multiple sheets for
+   *  cross-sheet findings (DEF-XS). `page` holds only the first for legacy compat. */
+  sheet_refs?: string[];
+  /** Adversarial second-pass result: 'verified' | 'overturned' | 'modified' |
+   *  'needs_human' | 'superseded' | 'unverified'. Shown as a badge in FindingCard. */
+  verification_status?: string;
+  /** Citation grounding result: 'verified' | 'mismatch' | 'not_found' | 'hallucinated'.
+   *  Shown as a small badge so reviewers know if the cited code section is real. */
+  citation_status?: string;
 }
 
 export type FindingStatus = "open" | "resolved" | "deferred";

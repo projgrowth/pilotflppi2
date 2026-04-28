@@ -176,7 +176,7 @@ type ChatMessage = {
 async function callAI(
   messages: ChatMessage[],
   toolSchema?: Record<string, unknown>,
-  _model = "claude-sonnet-4-6",
+  model = "claude-sonnet-4-6",
 ) {
   // Separate system prompt from user messages (Anthropic requires system at top level)
   const systemMsg = messages.find((m) => m.role === "system");
@@ -197,7 +197,7 @@ async function callAI(
   });
 
   const body: Record<string, unknown> = {
-    model: "claude-sonnet-4-6",
+    model,
     max_tokens: 8192,
     messages: userMessages,
   };
@@ -663,7 +663,7 @@ async function stageDnaExtract(
   const baseDefaults = {
     plan_review_id: planReviewId,
     firm_id: firmId,
-    fbc_edition: project?.fbc_edition ?? "8th",
+    fbc_edition: project?.fbc_edition ?? "7th",
     jurisdiction: project?.projects?.jurisdiction ?? null,
     county: project?.projects?.county ?? null,
   };
@@ -745,7 +745,7 @@ async function stageDnaExtract(
     fbc_edition:
       (extracted.fbc_edition as string | null) ??
       project?.fbc_edition ??
-      "8th",
+      "7th",
     wind_speed_vult: (extracted.wind_speed_vult as number | null) ?? null,
     exposure_category: (extracted.exposure_category as string | null) ?? null,
     risk_category: (extracted.risk_category as string | null) ?? null,
@@ -931,21 +931,23 @@ async function stageDisciplineReview(
     .filter(Boolean) as string[];
 
   const failed: string[] = [];
-  let totalFindings = 0;
 
-  for (const discipline of DISCIPLINES) {
-    try {
+  // Run all 9 discipline checks in parallel. This reduces the discipline_review
+  // stage from 3–9 minutes (serial) to 20–60 seconds (one call duration), well
+  // within the 400s edge-function wall-time limit.
+  const disciplineResults = await Promise.allSettled(
+    DISCIPLINES.map(async (discipline) => {
       const disciplineSheets = routed.filter((s) => s.discipline === discipline);
       const disciplineImageUrls = disciplineSheets
         .map((s) => signedUrls[s.page_index ?? -1]?.signed_url)
         .filter(Boolean) as string[];
 
-      // No sheets routed → log a single human-review item and continue.
+      // No sheets routed → log a single human-review item.
       if (disciplineImageUrls.length === 0) {
         await admin.from("deficiencies_v2").insert({
           plan_review_id: planReviewId,
           firm_id: firmId,
-          def_number: `DEF-${discipline.slice(0, 1).toUpperCase()}001`,
+          def_number: `DEF-${discipline.replace(/\s+/g, "").slice(0, 2).toUpperCase()}001`,
           discipline,
           finding: `No ${discipline} sheets identified in submittal.`,
           required_action: `Confirm whether ${discipline} scope applies; if so, request the missing sheets.`,
@@ -957,7 +959,7 @@ async function stageDisciplineReview(
           confidence_basis: "Sheet routing produced no inputs for this discipline.",
           status: "open",
         });
-        continue;
+        return { discipline, inserted: 0 };
       }
 
       const inserted = await runDisciplineChecks(admin, planReviewId, firmId, {
@@ -968,9 +970,18 @@ async function stageDisciplineReview(
         dna,
         jurisdiction,
       });
-      totalFindings += inserted;
-    } catch (err) {
-      console.error(`[discipline_review:${discipline}] failed:`, err);
+      return { discipline, inserted };
+    }),
+  );
+
+  let totalFindings = 0;
+  for (let i = 0; i < disciplineResults.length; i++) {
+    const result = disciplineResults[i];
+    const discipline = DISCIPLINES[i];
+    if (result.status === "fulfilled") {
+      totalFindings += result.value.inserted;
+    } else {
+      console.error(`[discipline_review:${discipline}] failed:`, result.reason);
       failed.push(discipline);
       await admin.from("deficiencies_v2").insert({
         plan_review_id: planReviewId,
@@ -1006,10 +1017,13 @@ async function runDisciplineChecks(
   ctx: DisciplineRunCtx,
 ): Promise<number> {
   // Pull this discipline's negative-space checklist (deterministic must-checks).
+  // Normalize discipline name: the seed data uses initcap casing (e.g. 'Mep')
+  // but our DISCIPLINES constant uses 'MEP'. ilike handles any remaining case
+  // mismatch without needing a separate DB fix for each acronym.
   const { data: items } = await admin
     .from("discipline_negative_space")
     .select("item_key, description, fbc_section, trigger_condition")
-    .eq("discipline", ctx.discipline)
+    .ilike("discipline", ctx.discipline)
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
@@ -1212,7 +1226,7 @@ async function runDisciplineChecks(
     discipline: ctx.discipline,
     sheet_refs: f.sheet_refs ?? [],
     code_reference: f.code_section
-      ? { code: "FBC", section: f.code_section, edition: ctx.dna?.fbc_edition ?? "8th" }
+      ? { code: "FBC", section: f.code_section, edition: ctx.dna?.fbc_edition ?? "7th" }
       : {},
     finding: f.finding,
     required_action: f.required_action,
@@ -1387,15 +1401,17 @@ async function runCrossSheetConsistency(
   }>;
   if (allSheets.length < 2 || signedUrls.length < 2) return [];
 
-  // Cap at 12 sheets to keep the call within model limits / cost. Prefer sheets
-  // that are most likely to have cross-sheet relationships.
+  // Cap at 20 sheets to keep the call within model limits / cost. Prefer sheets
+  // that are most likely to have cross-sheet relationships (schedules, plans,
+  // life-safety). Commercial permit sets often have 40+ sheets; we take the
+  // 20 most relationship-dense ones to maximize coverage within token limits.
   const PRIORITY_PREFIXES = ["A", "S", "M", "P", "E", "F", "L", "G"];
   const ranked = [...allSheets].sort((a, b) => {
     const ai = PRIORITY_PREFIXES.indexOf(a.sheet_ref.trim().toUpperCase()[0] ?? "Z");
     const bi = PRIORITY_PREFIXES.indexOf(b.sheet_ref.trim().toUpperCase()[0] ?? "Z");
     return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
   });
-  const selected = ranked.slice(0, 12);
+  const selected = ranked.slice(0, 20);
   const imageUrls = selected
     .map((s) => signedUrls[s.page_index ?? -1]?.signed_url)
     .filter(Boolean) as string[];
@@ -1979,10 +1995,13 @@ async function stageVerify(
     life_safety_flag: boolean;
     permit_blocker: boolean;
   }>).filter((d) => {
-    const lowConf = (d.confidence_score ?? 1) < 0.85;
-    const highPri =
-      d.priority === "high" || d.life_safety_flag || d.permit_blocker;
-    return lowConf || highPri;
+    // Only verify: life-safety/permit-blocker findings (always), plus high-priority
+    // findings that are also low-confidence. Routine medium/low findings with
+    // reasonable confidence skip the second pass to keep pipeline time under control.
+    const critical = d.life_safety_flag || d.permit_blocker;
+    const lowConf = (d.confidence_score ?? 1) < 0.7;
+    const highAndUncertain = d.priority === "high" && lowConf;
+    return critical || highAndUncertain;
   });
 
   if (candidates.length === 0) {

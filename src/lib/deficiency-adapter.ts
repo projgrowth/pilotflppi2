@@ -36,6 +36,7 @@ export interface DeficiencyV2Lite {
   requires_human_review: boolean;
   human_review_reason: string | null;
   verification_status: string;
+  citation_status?: string | null;
   status: string;
   model_version: string | null;
 }
@@ -91,6 +92,7 @@ export function adaptV2ToFindings(rows: DeficiencyV2Lite[]): Finding[] {
       discipline: d.discipline.toLowerCase().replace(/\s+/g, "-"),
       code_ref: codeRefFromV2(d),
       page: sheets[0] ?? "",
+      sheet_refs: sheets,
       description: d.finding,
       recommendation: d.required_action,
       confidence:
@@ -104,6 +106,8 @@ export function adaptV2ToFindings(rows: DeficiencyV2Lite[]): Finding[] {
       reasoning: reasoning || undefined,
       resolved: resolvedFromV2(d),
       model_version: d.model_version ?? undefined,
+      verification_status: d.verification_status,
+      citation_status: d.citation_status ?? undefined,
     };
   });
 }

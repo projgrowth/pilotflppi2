@@ -143,12 +143,44 @@ export const FindingCard = forwardRef<HTMLDivElement, FindingCardProps>(
                   {finding.confidence}
                 </Badge>
               )}
-              {finding.page && (
-                <span className="text-caption text-muted-foreground">pg {finding.page}</span>
-              )}
+              {/* Sheet refs — show all sheets, not just the first */}
+              {finding.sheet_refs && finding.sheet_refs.length > 0 ? (
+                <span className="text-caption text-muted-foreground font-mono">
+                  {finding.sheet_refs.join(" · ")}
+                </span>
+              ) : finding.page ? (
+                <span className="text-caption text-muted-foreground font-mono">{finding.page}</span>
+              ) : null}
               {finding.county_specific && (
                 <Badge variant="outline" className="text-caption font-medium border-accent text-accent bg-accent/5 h-3.5 px-1">
                   County
+                </Badge>
+              )}
+              {/* Verification status badge */}
+              {finding.verification_status === "verified" && (
+                <Badge variant="outline" className="text-caption font-medium border-success/40 text-success h-3.5 px-1" title="Adversarial second-pass: finding confirmed">
+                  Verified
+                </Badge>
+              )}
+              {finding.verification_status === "needs_human" && (
+                <Badge variant="outline" className="text-caption font-semibold border-warning/50 text-warning bg-warning/10 h-3.5 px-1" title="Verifier couldn't locate cited element — manual check required">
+                  Needs Review
+                </Badge>
+              )}
+              {finding.verification_status === "modified" && (
+                <Badge variant="outline" className="text-caption font-medium border-accent/40 text-accent h-3.5 px-1" title="Finding was refined during verification">
+                  Modified
+                </Badge>
+              )}
+              {/* Citation status badge */}
+              {finding.citation_status === "mismatch" && (
+                <Badge variant="outline" className="text-caption font-medium border-warning/40 text-warning h-3.5 px-1" title="Cited code section exists but finding text doesn't match its requirement">
+                  Citation ?
+                </Badge>
+              )}
+              {finding.citation_status === "hallucinated" && (
+                <Badge variant="outline" className="text-caption font-semibold border-destructive/50 text-destructive h-3.5 px-1" title="Cited code section could not be parsed — verify the reference">
+                  Bad Cite
                 </Badge>
               )}
               {/* Corrections-loop signal: this exact code section was historically
