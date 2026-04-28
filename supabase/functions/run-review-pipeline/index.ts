@@ -924,8 +924,9 @@ async function stageDisciplineReview(
     };
   });
 
-  // Smart chunking — first 2 "general notes" pages (cover/title/code summary) seed every call.
-  const generalSheets = routed.filter((s) => s.discipline === null).slice(0, 2);
+  // Smart chunking — first 4 "general notes" pages (cover/title/code summary/code analysis)
+  // seed every call. Commercial sets often have a code analysis summary on page 3.
+  const generalSheets = routed.filter((s) => s.discipline === null).slice(0, 4);
   const generalImageUrls = generalSheets
     .map((s) => signedUrls[s.page_index ?? -1]?.signed_url)
     .filter(Boolean) as string[];
@@ -937,7 +938,24 @@ async function stageDisciplineReview(
   // within the 400s edge-function wall-time limit.
   const disciplineResults = await Promise.allSettled(
     DISCIPLINES.map(async (discipline) => {
-      const disciplineSheets = routed.filter((s) => s.discipline === discipline);
+      let disciplineSheets = routed.filter((s) => s.discipline === discipline);
+
+      // Gap 1 fix: Product Approvals gets no dedicated sheet type from the AI
+      // sheet mapper. Supplement with Architectural + General sheets so the
+      // expert can see window/door schedules, spec sections, and FL#/NOA tables.
+      if (discipline === "Product Approvals" && disciplineSheets.length === 0) {
+        disciplineSheets = routed.filter(
+          (s) => s.discipline === "Architectural" || s.discipline === null,
+        ).slice(0, 10);
+      }
+
+      // Gap 5 fix: Claude has a 20-image-per-request hard limit.
+      // Cap discipline sheets at 12 (leaves 4 slots for general/cover context).
+      if (disciplineSheets.length > 12) {
+        console.warn(`[discipline_review:${discipline}] ${disciplineSheets.length} sheets — capping at 12`);
+        disciplineSheets = disciplineSheets.slice(0, 12);
+      }
+
       const disciplineImageUrls = disciplineSheets
         .map((s) => signedUrls[s.page_index ?? -1]?.signed_url)
         .filter(Boolean) as string[];
@@ -969,6 +987,7 @@ async function stageDisciplineReview(
         generalImageUrls,
         dna,
         jurisdiction,
+        county,
       });
       return { discipline, inserted };
     }),
@@ -1008,6 +1027,60 @@ interface DisciplineRunCtx {
   generalImageUrls: string[];
   dna: Record<string, unknown> | null;
   jurisdiction: Record<string, unknown> | null;
+  county: string | null;
+}
+
+/**
+ * Gap 2 fix: Evaluate a trigger_condition expression against the project DNA
+ * server-side, rather than passing it as text to the AI and hoping it guesses.
+ *
+ * Supported forms: "key = true", "key = false", "key = someValue"
+ * Null / unknown conditions → include the item (safe default).
+ */
+function evaluateTrigger(condition: string | null, dna: Record<string, unknown> | null): boolean {
+  if (!condition) return true;
+  if (!dna) return true; // no DNA → include (can't filter, fail safe)
+  const m = condition.trim().match(/^(\w+)\s*=\s*(.+)$/);
+  if (!m) return true; // unrecognised syntax → include
+  const [, key, rawVal] = m;
+  const dnaVal = dna[key];
+  if (rawVal === "true") return dnaVal === true;
+  if (rawVal === "false") return dnaVal === false;
+  return String(dnaVal ?? "").toLowerCase().includes(rawVal.toLowerCase());
+}
+
+/**
+ * Gap 3 fix: Inline county amendments from the county-requirements data.
+ * We can't import the frontend TS module in Deno, so the relevant data is
+ * duplicated here. Kept minimal — only amendment refs & descriptions.
+ */
+const COUNTY_AMENDMENTS: Record<string, Array<{ ref: string; description: string }>> = {
+  "miami-dade": [
+    { ref: "Miami-Dade Sec. 8A", description: "Local amendments to FBC for HVHZ construction" },
+    { ref: "FBC 1626 (HVHZ)", description: "High Velocity Hurricane Zone requirements" },
+    { ref: "FBC 1523 (HVHZ)", description: "Enhanced roofing requirements for HVHZ" },
+    { ref: "Miami-Dade TAS 201/202/203", description: "Test protocols for impact-resistant products" },
+    { ref: "Miami-Dade Resolution R-918-10", description: "Private provider notification requirements" },
+  ],
+  "broward": [
+    { ref: "Broward County Amendments to FBC Ch. 17", description: "Local structural amendments" },
+    { ref: "Broward County Ordinance 2023-XX", description: "Local building safety amendments" },
+    { ref: "Broward 1620.2 (HVHZ-adjacent)", description: "Wind load requirements for coastal Broward" },
+  ],
+  "palm-beach": [
+    { ref: "Palm Beach County WBD Ordinance", description: "Wind-Borne Debris region requirements" },
+    { ref: "Palm Beach Flood Ordinance", description: "Enhanced flood mitigation requirements" },
+  ],
+  "monroe": [
+    { ref: "Monroe County HVHZ", description: "All of Monroe County is HVHZ — FBC Ch. 16 Div. VIII" },
+    { ref: "Monroe Flood Elevation Requirements", description: "Enhanced freeboard required in AE/VE zones" },
+  ],
+};
+
+function getCountyAmendments(county: string | null): Array<{ ref: string; description: string }> {
+  if (!county) return [];
+  const key = county.toLowerCase().replace(/\s+/g, "-");
+  return COUNTY_AMENDMENTS[key] ?? [];
 }
 
 async function runDisciplineChecks(
@@ -1072,13 +1145,18 @@ async function runDisciplineChecks(
       )
     : "(unknown jurisdiction)";
 
-  const checklistText = checklist.length
-    ? checklist
+  // Gap 2 fix: Filter checklist items by trigger_condition against DNA server-side.
+  // Items whose condition doesn't apply are excluded entirely — the AI never sees
+  // them, eliminating false-positives caused by the AI misreading the condition text.
+  const filteredChecklist = checklist.filter((c) => evaluateTrigger(c.trigger_condition, ctx.dna));
+
+  const checklistText = filteredChecklist.length
+    ? filteredChecklist
         .map(
           (c, i) =>
             `${i + 1}. [${c.item_key}] ${c.description}${
               c.fbc_section ? ` (FBC ${c.fbc_section})` : ""
-            }${c.trigger_condition ? ` — only if: ${c.trigger_condition}` : ""}`,
+            }`,
         )
         .join("\n")
     : "(no checklist seeded — rely on discipline best practices)";
@@ -1155,9 +1233,19 @@ async function runDisciplineChecks(
   // common failure modes + wording/evidence guidance + shared review rules.
   const systemPrompt = composeDisciplineSystemPrompt(ctx.discipline);
 
+  // Gap 3 fix: County-specific amendments injected into every discipline prompt.
+  // This ensures Miami-Dade reviewers see HVHZ requirements, Broward reviewers see
+  // local structural amendments, etc. without the AI having to infer them from DNA.
+  const countyAmendments = getCountyAmendments(ctx.county);
+  const amendmentBlock = countyAmendments.length
+    ? `\n\n## County-specific requirements (${ctx.county})\n` +
+      countyAmendments.map((a) => `- ${a.ref}: ${a.description}`).join("\n")
+    : "";
+
   const userText =
     `## Project DNA\n${dnaSummary}\n\n` +
-    `## Jurisdiction\n${jurSummary}\n\n` +
+    `## Jurisdiction\n${jurSummary}` +
+    amendmentBlock + `\n\n` +
     `## Sheets routed to ${ctx.discipline}\n${sheetIndex || "(none)"}\n\n` +
     `## Mandatory ${ctx.discipline} checklist\n${checklistText}` +
     memoryBlock +
@@ -1766,31 +1854,54 @@ async function stageDeferredScope(
     return { reused: true, deferred_items: existing };
   }
 
-  // Pull the general/cover sheets — that's where deferred-submittal lists
-  // almost always live. Fall back to first 3 pages if no general sheets mapped.
-  const [{ data: generalSheets }, signed] = await Promise.all([
-    admin
-      .from("sheet_coverage")
-      .select("page_index, sheet_ref")
-      .eq("plan_review_id", planReviewId)
-      .eq("status", "present")
-      .in("discipline", ["General"])
-      .order("page_index", { ascending: true })
-      .limit(4),
-    signedSheetUrls(admin, planReviewId),
-  ]);
+  // Workflow Gap 4 fix: Pull general/cover sheets AND the first page of
+  // Structural and MEP — deferred submittals (trusses, fire alarm, PEMB,
+  // elevator) are most commonly called out on structural or mechanical general
+  // notes, not just the cover. Cap total at 6 images.
+  const [{ data: generalSheets }, { data: structuralSheets }, { data: mepSheets }, signed] =
+    await Promise.all([
+      admin
+        .from("sheet_coverage")
+        .select("page_index, sheet_ref")
+        .eq("plan_review_id", planReviewId)
+        .eq("status", "present")
+        .in("discipline", ["General"])
+        .order("page_index", { ascending: true })
+        .limit(4),
+      admin
+        .from("sheet_coverage")
+        .select("page_index, sheet_ref")
+        .eq("plan_review_id", planReviewId)
+        .eq("status", "present")
+        .ilike("discipline", "Structural")
+        .order("page_index", { ascending: true })
+        .limit(1),
+      admin
+        .from("sheet_coverage")
+        .select("page_index, sheet_ref")
+        .eq("plan_review_id", planReviewId)
+        .eq("status", "present")
+        .ilike("discipline", "MEP")
+        .order("page_index", { ascending: true })
+        .limit(1),
+      signedSheetUrls(admin, planReviewId),
+    ]);
 
   let imageUrls: string[] = [];
   let sourceSheetRefs: string[] = [];
-  const general = (generalSheets ?? []) as Array<{
-    page_index: number | null;
-    sheet_ref: string;
-  }>;
-  if (general.length > 0) {
-    imageUrls = general
+
+  type SheetRow = { page_index: number | null; sheet_ref: string };
+  const allSheetsForDeferred: SheetRow[] = [
+    ...((generalSheets ?? []) as SheetRow[]),
+    ...((structuralSheets ?? []) as SheetRow[]),
+    ...((mepSheets ?? []) as SheetRow[]),
+  ].slice(0, 6); // hard cap at 6 images
+
+  if (allSheetsForDeferred.length > 0) {
+    imageUrls = allSheetsForDeferred
       .map((s) => signed[s.page_index ?? -1]?.signed_url)
       .filter(Boolean) as string[];
-    sourceSheetRefs = general.map((s) => s.sheet_ref);
+    sourceSheetRefs = allSheetsForDeferred.map((s) => s.sheet_ref);
   }
   if (imageUrls.length === 0) {
     imageUrls = signed.slice(0, 3).map((s) => s.signed_url);

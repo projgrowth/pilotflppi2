@@ -33,7 +33,7 @@ export function usePlanReviewData(reviewId: string | undefined) {
       const { data, error } = await supabase
         .from("plan_reviews")
         .select(
-          "*, project:projects(id, name, address, trade_type, county, jurisdiction, contractor:contractors(id, name, email, phone, license_number))",
+          "*, project:projects(id, name, address, trade_type, county, jurisdiction, permit_number, review_clock_started_at, statutory_deadline_at, contractor:contractors(id, name, email, phone, license_number))",
         )
         .eq("id", reviewId!)
         .single();

@@ -27,6 +27,18 @@ interface CommentLetterExportProps {
   findings: Finding[];
   findingStatuses: Record<number, string>;
   firmInfo?: FirmInfo | null;
+  /** Permit application number from the jurisdiction. */
+  permitNumber?: string | null;
+  /** Contractor / applicant info for the addressee block. */
+  contractor?: { name: string; license_number: string | null; email: string | null; phone: string | null } | null;
+  /** ISO datetime when the FS 553.791 review clock started. */
+  reviewClockStartedAt?: string | null;
+  /** ISO datetime of the FS 553.791 statutory deadline. */
+  statutoryDeadlineAt?: string | null;
+  /** Name of the licensed reviewer signing the letter. */
+  reviewerName?: string | null;
+  /** Florida PE/RA license number of the signing reviewer. */
+  reviewerLicense?: string | null;
 }
 
 function groupByDiscipline(findings: Finding[]) {
@@ -156,8 +168,20 @@ function buildSupplementalSections(config: CountyRequirements): string {
 }
 
 function buildLetterHTML(props: CommentLetterExportProps): string {
-  const { projectName, address, county, jurisdiction, tradeType, round, findings, findingStatuses, firmInfo } = props;
+  const {
+    projectName, address, county, jurisdiction, tradeType, round,
+    findings, findingStatuses, firmInfo,
+    permitNumber, contractor, reviewClockStartedAt, statutoryDeadlineAt,
+    reviewerName, reviewerLicense,
+  } = props;
   const firm = firmInfo || { firm_name: "Florida Private Providers, Inc.", license_number: "AR92053", email: "", phone: "", address: "", logo_url: "", closing_language: "" };
+
+  // Letter Gap 3: Only claim statutory compliance when we can verify the clock.
+  const withinStatutoryPeriod = (() => {
+    if (!reviewClockStartedAt) return false;
+    if (!statutoryDeadlineAt) return false;
+    return Date.now() <= new Date(statutoryDeadlineAt).getTime();
+  })();
   const config = getCountyRequirements(county);
   const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const grouped = groupByDiscipline(findings);
@@ -245,7 +269,8 @@ ${config.buildingDepartment.address ? `
     <tr><td>Trade(s):</td><td style="text-transform:capitalize">${tradeType}</td></tr>
     <tr><td>Review Round:</td><td>#${round}</td></tr>
     <tr><td>Design Wind Speed:</td><td>${config.designWindSpeed}</td></tr>
-    <tr><td>Permit Application #:</td><td>[TO BE ASSIGNED]</td></tr>
+    <tr><td>Permit Application #:</td><td>${permitNumber || '<em style="color:#c53030">Pending assignment — enter before sending</em>'}</td></tr>
+    ${contractor ? `<tr><td>Applicant/Contractor:</td><td>${contractor.name}${contractor.license_number ? ` — License # ${contractor.license_number}` : ''}</td></tr>` : ''}
   </table>
 </div>
 
@@ -261,7 +286,10 @@ ${config.submissionNotes.length > 0 ? `
 
 <p class="body-text">Pursuant to Florida Statute 553.791, Florida Private Providers, Inc. has completed a plan review of the above-referenced project. The following deficiencies and comments have been identified during our review of the submitted construction documents against the Florida Building Code, 8th Edition (2023) and all applicable referenced standards${config.amendments.length > 0 ? `, including ${config.label} County local amendments` : ''}.</p>
 
-<p class="body-text">This review was completed within the statutory 30-business-day review period per F.S. 553.791(4)(b). The applicant is required to address all deficiency items and resubmit corrected plans within <strong>${config.resubmissionDays} calendar days</strong>.</p>
+${withinStatutoryPeriod
+  ? `<p class="body-text">This review was completed within the statutory review period per F.S. 553.791(4)(b). The applicant is required to address all deficiency items and resubmit corrected plans within <strong>${config.resubmissionDays} calendar days</strong>.</p>`
+  : `<p class="body-text">The applicant is required to address all deficiency items and resubmit corrected plans within <strong>${config.resubmissionDays} calendar days</strong> of this letter.</p>`
+}
 
 <div class="summary-box">
   <h3>Review Summary</h3>
@@ -315,9 +343,9 @@ ${buildSupplementalSections(config)}
 
 <div class="signature-block">
   <div class="signature-line">
-    Plan Review Engineer<br>
+    ${reviewerName ? `${reviewerName}<br>` : ''}Plan Review Engineer / Licensed Private Provider<br>
     ${firm.firm_name || "Florida Private Providers, Inc."}<br>
-    License # ${firm.license_number || "AR92053"}
+    ${reviewerLicense ? `PE/RA License # ${reviewerLicense} | ` : ''}Firm License # ${firm.license_number || "AR92053"}
   </div>
 </div>
 

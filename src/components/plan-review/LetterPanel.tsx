@@ -38,6 +38,12 @@ interface LetterPanelProps {
   onDocumentGenerated: () => void;
   /** Validate then trigger send. Parent owns the linter dialog. */
   onSendToContractor?: () => void;
+  permitNumber?: string | null;
+  contractor?: { name: string; license_number: string | null; email: string | null; phone: string | null } | null;
+  reviewClockStartedAt?: string | null;
+  statutoryDeadlineAt?: string | null;
+  reviewerName?: string | null;
+  reviewerLicense?: string | null;
 }
 
 function formatRelative(date: Date): string {
@@ -55,6 +61,7 @@ export function LetterPanel({
   tradeType, round, projectId, projectName, address, aiCheckStatus,
   autosaveState, autosaveLastSavedAt,
   onGenerateLetter, onCancelLetter, onCopyLetter, onLetterChange, onQcApprove, onQcReject, onDocumentGenerated, onSendToContractor,
+  permitNumber, contractor, reviewClockStartedAt, statutoryDeadlineAt, reviewerName, reviewerLicense,
 }: LetterPanelProps) {
   return (
     <div className="p-3 space-y-3">
@@ -106,6 +113,12 @@ export function LetterPanel({
               findingStatuses={Object.fromEntries(Object.entries(findingStatuses).map(([k, v]) => [Number(k), v]))}
               firmInfo={firmSettings}
               onDocumentGenerated={onDocumentGenerated}
+              permitNumber={permitNumber}
+              contractor={contractor}
+              reviewClockStartedAt={reviewClockStartedAt}
+              statutoryDeadlineAt={statutoryDeadlineAt}
+              reviewerName={reviewerName}
+              reviewerLicense={reviewerLicense}
             />
           )}
           {hasFindings && qcStatus !== "qc_approved" && (

@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ChevronDown,
   Layers,
+  Clock,
 } from "lucide-react";
 import {
   Popover,
@@ -22,6 +23,7 @@ import {
 } from "@/hooks/useReviewDashboard";
 import { useAppliedCorrections } from "@/hooks/useCorrectionPatterns";
 import { StatusPill, type ReviewStatus } from "@/lib/review-status";
+import { getBusinessDaysRemaining, getBusinessDaysElapsed } from "@/lib/statutory-deadlines";
 import ReviewStatusBar from "./ReviewStatusBar";
 import VerificationBanner from "./VerificationBanner";
 import ReviewerMemoryCard from "./ReviewerMemoryCard";
@@ -34,6 +36,8 @@ interface Props {
   projectName: string;
   projectAddress: string;
   jurisdiction: string;
+  /** ISO datetime when the FS 553.791 review clock started. */
+  reviewClockStartedAt?: string | null;
 }
 
 interface VerifyMetadata {
@@ -61,6 +65,7 @@ export default function ReviewHealthStrip({
   projectName,
   projectAddress,
   jurisdiction,
+  reviewClockStartedAt,
 }: Props) {
   const { data: pipeRows = [] } = usePipelineStatus(planReviewId);
   const { data: defs = [] } = useDeficienciesV2(planReviewId);
@@ -113,6 +118,23 @@ export default function ReviewHealthStrip({
     (crossMeta.contradictions?.length ?? 0);
   const mergedGroups = dedupeMeta.groups_merged ?? 0;
   const supersededCount = dedupeMeta.findings_superseded ?? 0;
+
+  // Statutory clock: business days remaining in the FS 553.791(4)(b) 30-day window.
+  // Negative = overdue. Null = clock not started.
+  const statutoryDaysLeft = useMemo<number | null>(() => {
+    if (!reviewClockStartedAt) return null;
+    const elapsed = getBusinessDaysElapsed(reviewClockStartedAt);
+    return 30 - elapsed; // can be negative when overdue
+  }, [reviewClockStartedAt]);
+
+  const statutoryTone: ChipTone =
+    statutoryDaysLeft === null
+      ? "muted"
+      : statutoryDaysLeft > 10
+        ? "ok"
+        : statutoryDaysLeft > 5
+          ? "warn"
+          : "danger";
 
   // Live deficiency totals (exclude overturned + superseded duplicates)
   const liveDefs = defs.filter(
@@ -230,6 +252,31 @@ export default function ReviewHealthStrip({
             jurisdiction={jurisdiction}
           />
         </Chip>
+
+        {/* Statutory clock — always shown when clock is running so the PE
+            never loses track of the FS 553.791(4)(b) 30-business-day window. */}
+        {statutoryDaysLeft !== null && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium",
+              statutoryTone === "ok"
+                ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+                : statutoryTone === "warn"
+                  ? "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-400"
+                  : "border-destructive/40 bg-destructive/5 text-destructive",
+            )}
+            title="Business days remaining in the FS 553.791(4)(b) 30-day statutory review period"
+          >
+            <Clock className="h-3 w-3" />
+            <span>
+              {statutoryDaysLeft > 0
+                ? `${statutoryDaysLeft} bd left`
+                : statutoryDaysLeft === 0
+                  ? "Due today"
+                  : `${Math.abs(statutoryDaysLeft)} bd overdue`}
+            </span>
+          </span>
+        )}
 
         <span className="ml-auto text-2xs font-mono text-muted-foreground">
           Sheets {presentSheets}/{expectedSheets}

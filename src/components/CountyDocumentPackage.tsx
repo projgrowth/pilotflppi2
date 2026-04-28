@@ -26,6 +26,12 @@ interface CountyDocumentPackageProps {
   findingStatuses: Record<number, string>;
   firmInfo?: FirmInfo | null;
   onDocumentGenerated?: () => void;
+  permitNumber?: string | null;
+  contractor?: { name: string; license_number: string | null; email: string | null; phone: string | null } | null;
+  reviewClockStartedAt?: string | null;
+  statutoryDeadlineAt?: string | null;
+  reviewerName?: string | null;
+  reviewerLicense?: string | null;
 }
 
 function buildProductChecklistHTML(props: CountyDocumentPackageProps): string {

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import { AlertTriangle, ShieldOff, ArrowRight } from "lucide-react";
+import { AlertTriangle, ShieldOff, ArrowRight, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
   usePipelineStatus,
@@ -59,7 +60,7 @@ export default function DnaHealthBanner({
   );
 
   // Derive client-side as a fallback when the edge function metadata is stale.
-  const { criticalMissing, ambiguous, jurisdictionMismatch, completeness } =
+  const { criticalMissing, ambiguous, jurisdictionMismatch, completeness, isThresholdBuilding } =
     useMemo(() => {
       if (!dna) {
         return {
@@ -67,6 +68,7 @@ export default function DnaHealthBanner({
           ambiguous: [] as string[],
           jurisdictionMismatch: false,
           completeness: 0,
+          isThresholdBuilding: false,
         };
       }
       const cm: string[] = [];
@@ -77,11 +79,28 @@ export default function DnaHealthBanner({
       const dnaC = dna.county?.toLowerCase().trim();
       const projC = projectCounty?.toLowerCase().trim();
       const mismatch = !!dnaC && !!projC && dnaC !== projC;
+
+      // Workflow Gap 2: Auto-derive threshold building status per FS 553.899.
+      // A building is "threshold" if it meets ANY of: >3 stories, >50 ft height,
+      // >5,000 sqft per story, OR >$4M construction cost. These trigger additional
+      // private provider obligations (licensed threshold inspector required).
+      const d = dna as unknown as Record<string, unknown>;
+      const stories = typeof d.stories === "number" ? d.stories : parseFloat(String(d.stories ?? "0")) || 0;
+      const sqFt = typeof d.total_sq_ft === "number" ? d.total_sq_ft : parseFloat(String(d.total_sq_ft ?? "0")) || 0;
+      const isHighRise = d.is_high_rise === true;
+      const constructionCost = typeof d.construction_cost === "number" ? d.construction_cost : parseFloat(String(d.construction_cost ?? "0")) || 0;
+      const thresh =
+        stories > 3 ||
+        isHighRise || // proxy for >50 ft
+        sqFt > 5000 ||
+        constructionCost > 4_000_000;
+
       return {
         criticalMissing: cm,
         ambiguous: dna.ambiguous_fields ?? [],
         jurisdictionMismatch: mismatch,
         completeness: (CRITICAL_DNA_FIELDS.length - cm.length) / CRITICAL_DNA_FIELDS.length,
+        isThresholdBuilding: thresh,
       };
     }, [dna, projectCounty]);
 
@@ -100,7 +119,8 @@ export default function DnaHealthBanner({
   // Soft warning: any critical fields missing or any ambiguous fields.
   const hasWarnings = criticalMissing.length > 0 || ambiguous.length > 0;
 
-  if (!isBlocked && !hasWarnings) return null;
+  // Render at minimum the threshold building flag even when DNA is clean.
+  if (!isBlocked && !hasWarnings && !isThresholdBuilding) return null;
 
   const tone = isBlocked ? "danger" : "warn";
 
@@ -121,6 +141,41 @@ export default function DnaHealthBanner({
       .filter((f) => !criticalMissing.includes(f))
       .map((f) => ({ key: f, kind: "ambiguous" as const })),
   ];
+
+  // If only the threshold flag is set (DNA is otherwise clean), render a
+  // standalone info banner rather than the full warning/danger layout.
+  if (!isBlocked && !hasWarnings && isThresholdBuilding) {
+    return (
+      <div
+        role="note"
+        className="rounded-lg border-2 border-orange-500/50 bg-orange-500/5 p-4 shadow-sm"
+      >
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-500/15 text-orange-700 dark:text-orange-400">
+            <Building2 className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-orange-800 dark:text-orange-300">
+                Threshold Building — FS 553.899
+              </span>
+              <Badge variant="outline" className="border-orange-500/50 text-orange-700 dark:text-orange-400 text-2xs h-4 px-1">
+                THRESHOLD
+              </Badge>
+            </div>
+            <p className="text-xs text-foreground/80">
+              This project meets the FS 553.899 threshold building definition (&gt;3 stories, &gt;50 ft, &gt;5,000 sqft/floor, or &gt;$4M cost). A{" "}
+              <strong>licensed threshold building inspector</strong> must be employed, and additional private provider reporting obligations apply under F.S. 553.791(6).
+            </p>
+            <Button type="button" size="sm" variant="secondary" onClick={onJumpToDna} className="h-7 text-xs mt-1">
+              Verify in Project DNA
+              <ArrowRight className="ml-1 h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -183,6 +238,12 @@ export default function DnaHealthBanner({
                   {FIELD_LABELS[key] ?? key}
                 </span>
               ))}
+              {isThresholdBuilding && (
+                <span className="inline-flex items-center gap-1 rounded border border-orange-500/50 bg-orange-500/10 px-1.5 py-0.5 text-2xs font-semibold text-orange-700 dark:text-orange-400">
+                  <Building2 className="h-2.5 w-2.5" />
+                  THRESHOLD BUILDING
+                </span>
+              )}
             </div>
           )}
 

@@ -32,6 +32,7 @@ interface ReviewWithProject {
     address: string;
     jurisdiction: string;
     county: string;
+    review_clock_started_at: string | null;
   } | null;
 }
 
@@ -69,7 +70,7 @@ export default function ReviewDashboard() {
       const { data, error } = await supabase
         .from("plan_reviews")
         .select(
-          "id, project_id, round, qc_status, comment_letter_draft, project:projects(name, address, jurisdiction, county)",
+          "id, project_id, round, qc_status, comment_letter_draft, project:projects(name, address, jurisdiction, county, review_clock_started_at)",
         )
         .eq("id", id!)
         .maybeSingle();
@@ -180,6 +181,7 @@ export default function ReviewDashboard() {
           projectName={review.project.name}
           projectAddress={review.project.address}
           jurisdiction={review.project.jurisdiction || review.project.county}
+          reviewClockStartedAt={review.project.review_clock_started_at}
         />
       )}
 

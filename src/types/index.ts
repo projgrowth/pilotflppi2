@@ -20,6 +20,12 @@ export interface ProjectInfo {
   county: string;
   jurisdiction: string;
   contractor: ContractorInfo | null;
+  /** Permit application number assigned by the jurisdiction. */
+  permit_number?: string | null;
+  /** ISO datetime when the FS 553.791 statutory review clock started. */
+  review_clock_started_at?: string | null;
+  /** ISO datetime of the FS 553.791 statutory review deadline. */
+  statutory_deadline_at?: string | null;
 }
 
 export interface MarkupData {

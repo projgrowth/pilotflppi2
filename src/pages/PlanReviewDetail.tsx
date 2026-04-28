@@ -579,6 +579,10 @@ export default function PlanReviewDetail() {
       onQcApprove: handleQcApprove,
       onQcReject: handleQcReject,
       onDocumentGenerated: handleDocumentGenerated,
+      permitNumber: review.project?.permit_number ?? null,
+      contractor,
+      reviewClockStartedAt: review.project?.review_clock_started_at ?? null,
+      statutoryDeadlineAt: review.project?.statutory_deadline_at ?? null,
     }),
     [
       review.id,
@@ -608,6 +612,10 @@ export default function PlanReviewDetail() {
       handleQcApprove,
       handleQcReject,
       handleDocumentGenerated,
+      review.project?.permit_number,
+      contractor,
+      review.project?.review_clock_started_at,
+      review.project?.statutory_deadline_at,
     ],
   );
 
